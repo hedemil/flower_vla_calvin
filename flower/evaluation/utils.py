@@ -157,7 +157,7 @@ def get_default_model_and_env(train_folder, dataset_path, checkpoint, env=None, 
 
 def get_default_mode_and_env(train_folder, dataset_path, checkpoint, env=None, lang_embeddings=None, prep_dm_and_deps=True, device_id=0, eval_cfg_overwrite={}):
     # Fix for the path issue - ensure we're working with the directory containing the config
-    train_folder_path = Path(train_folder)
+    train_folder_path = Path(train_folder).resolve()  # Convert to absolute path
     
     # If the train_folder is already pointing to a .yaml file, use its parent directory
     if train_folder_path.suffix == '.yaml':
