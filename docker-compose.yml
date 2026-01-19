@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  flower_vla:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: flower_vla_calvin:latest
+    container_name: flower_vla_calvin
+
+    # GPU support
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    # Environment variables
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - MUJOCO_GL=egl
+      - PYOPENGL_PLATFORM=egl
+
+    # Mount volumes
+    volumes:
+      # Mount the code (for development)
+      - ./flower:/workspace/flower_vla_calvin/flower
+      - ./configs:/workspace/flower_vla_calvin/configs
+
+      # Mount data directories (create these locally if needed)
+      - ./dataset:/workspace/flower_vla_calvin/dataset
+      - ./checkpoints:/workspace/flower_vla_calvin/checkpoints
+      - ./outputs:/workspace/flower_vla_calvin/outputs
+      - ./logs:/workspace/flower_vla_calvin/logs
+
+      # Mount helper scripts
+      - ./run_evaluation.sh:/workspace/flower_vla_calvin/run_evaluation.sh
+      - ./download_pretrained.sh:/workspace/flower_vla_calvin/download_pretrained.sh
+      - ./QUICKSTART.md:/workspace/flower_vla_calvin/QUICKSTART.md
+
+      # Optional: mount for wandb cache
+      - ~/.cache/wandb:/root/.cache/wandb
+
+    # Keep container running
+    stdin_open: true
+    tty: true
+
+    # Shared memory size (important for PyTorch dataloaders)
+    shm_size: '16gb'
+
+    # Network mode
+    network_mode: host
+
+    working_dir: /workspace/flower_vla_calvin
+
+    command: /bin/bash

@@ -65,7 +65,11 @@ def print_and_save(total_results, plan_dicts, cfg, log_dir=None):
     current_data = {}
     ranking = {}
     for checkpoint, results in total_results.items():
-        epoch = checkpoint.stem.split("=")[1]
+        # Handle different checkpoint naming formats
+        if "=" in checkpoint.stem:
+            epoch = checkpoint.stem.split("=")[1]
+        else:
+            epoch = checkpoint.stem
         print(f"Results for Epoch {epoch}:")
         avg_seq_len = np.mean(results)
         ranking[epoch] = avg_seq_len
@@ -92,7 +96,8 @@ def print_and_save(total_results, plan_dicts, cfg, log_dir=None):
             print(f"{task}: {cnt_success[task]} / {total[task]} |  SR: {cnt_success[task] / total[task] * 100:.1f}%")
 
         data = {"avg_seq_len": avg_seq_len, "chain_sr": chain_sr, "task_info": task_info}
-        wandb.log({"avrg_performance/avg_seq_len": avg_seq_len, "avrg_performance/chain_sr": chain_sr, "detailed_metrics/task_info": task_info})
+        if cfg.log_wandb:
+            wandb.log({"avrg_performance/avg_seq_len": avg_seq_len, "avrg_performance/chain_sr": chain_sr, "detailed_metrics/task_info": task_info})
         current_data[epoch] = data
 
         print()

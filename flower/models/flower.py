@@ -298,8 +298,8 @@ class FLOWERVLA(pl.LightningModule):
     def _setup_vlm(self, vlm_path: str, freeze_vision_tower: bool, freeze_florence: bool):
         """Initialize and configure the Florence-2 VLM"""
         print(f"Loading Florence-2 from {vlm_path}")
-        
-        self.vlm = AutoModelForCausalLM.from_pretrained(vlm_path, trust_remote_code=True)
+
+        self.vlm = AutoModelForCausalLM.from_pretrained(vlm_path, trust_remote_code=True, attn_implementation="eager")
         
         # Handle parameter freezing
         if freeze_florence:

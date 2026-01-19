@@ -11,7 +11,7 @@ import torch.distributed as dist
 from torchvision.transforms.functional import resize
 import wandb
 import wandb.util
-from moviepy.video.io.ImageSequenceClip import ImageSequenceClip
+from moviepy import ImageSequenceClip
 
 from flower.utils.utils import add_text
 
@@ -236,21 +236,17 @@ class RolloutVideo:
                 video = video.unsqueeze(0)
             video = np.clip(video.numpy() * 255, 0, 255).astype(np.uint8)
 
-            mpy = wandb.util.get_module(
-                "moviepy.editor",
-                required='wandb.Video requires moviepy and imageio when passing raw data.  Install with "pip install moviepy imageio"',
-            )
             tensor = self._prepare_video(video)
             # Resize tensor if resolution scale is not 1.0
             if self.resolution_scale != 1.0:
                 tensor = self._resize_video(tensor)
             _, _height, _width, _channels = tensor.shape
-            
+
             if save_as_video:
             # encode sequence of images into gif string
-                clip = mpy.ImageSequenceClip(list(tensor), fps=30)
+                clip = ImageSequenceClip(list(tensor), fps=30)
             else:
-                clip = mpy.ImageSequenceClip(list(tensor), fps=20)
+                clip = ImageSequenceClip(list(tensor), fps=20)
 
             tag = tag.replace("/", "_")
             if save_as_video:
