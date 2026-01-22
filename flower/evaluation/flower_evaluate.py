@@ -16,6 +16,7 @@ from pytorch_lightning import seed_everything
 from termcolor import colored
 from tqdm.auto import tqdm
 import wandb
+import torch
 import torch.distributed as dist
 
 from flower.evaluation.multistep_sequences import get_sequences
@@ -116,6 +117,27 @@ def print_and_save(total_results, plan_dicts, cfg, log_dir=None):
 def evaluate_policy(model, env, lang_embeddings, cfg, num_videos=0, save_dir=None):
     task_oracle = hydra.utils.instantiate(cfg.tasks)
     val_annotations = cfg.annotations
+
+    # --- Latency/Throughput Measurement Block ---
+    obs = env.get_obs()
+    # Use a valid subtask from val_annotations for the goal
+    subtask = list(val_annotations.keys())[0]
+    lang_annotation = val_annotations[subtask][0]
+    goal = {'lang_text': lang_annotation}
+    model.reset()
+
+    print("Measuring latency and throughput over 1000 steps...")
+    torch.cuda.synchronize()
+    start = time.time()
+    for _ in range(1000):
+        with torch.no_grad():
+            _ = model.step(obs, goal)
+    torch.cuda.synchronize()
+    end = time.time()
+    latency = (end - start) / 1000
+    throughput = 1000 / (end - start)
+    print(f"Latency: {latency:.4f} s/step, Throughput: {throughput:.2f} Hz")
+    # --- End Measurement Block ---
 
     # video stuff
     if num_videos > 0:
@@ -248,11 +270,18 @@ def main(cfg):
 
     model = model.to(cfg.device)
 
+    if cfg.get("use_bf16", False):
+      print("Using bfloat16 autocast for inference.")
+      model.use_bf16 = True
+    else:
+      model.use_bf16 = False  
+
     if cfg.num_sampling_steps is not None:
         model.num_sampling_steps = cfg.num_sampling_steps
     if cfg.multistep is not None:
         model.multistep = cfg.multistep
     print(model.num_sampling_steps, model.multistep)
+    print(f"Model dtype: {next(model.parameters()).dtype}")
 
     model.eval()
 

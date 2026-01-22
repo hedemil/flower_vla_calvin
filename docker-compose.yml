@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   flower_vla:
     build:
@@ -28,6 +26,7 @@ services:
     volumes:
       # Mount the code (for development)
       - ./flower:/workspace/flower_vla_calvin/flower
+      - ./calvin_env:/workspace/flower_vla_calvin/calvin_env
       - ./configs:/workspace/flower_vla_calvin/configs
 
       # Mount data directories (create these locally if needed)

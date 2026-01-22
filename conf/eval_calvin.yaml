@@ -7,8 +7,11 @@ eval_cfg_overwrite:
     datasets:
       lang_dataset:
         lang_folder: lang_annotations
+        batch_size: 1 # Added for latency during evaluation
   model:
     num_sampling_steps: ${num_sampling_steps}
+  trainer:
+    precision: bf16-mixed # Added for latency during evaluation
 
 train_folder: /home/hk-project-sustainebot/ft4740/code/flower_vla_calvin/logs/best_checkpoints/calvin_abcd/.hydra/config.yaml
 checkpoint: /home/hk-project-sustainebot/ft4740/code/flower_vla_calvin/logs/best_checkpoints/calvin_abcd/seed_342/avg_seq_len=4.72.ckpt
@@ -27,3 +30,4 @@ num_sequences: 100
 ep_len: 360
 num_sampling_steps: 4
 multistep: 10
+use_bf16: true

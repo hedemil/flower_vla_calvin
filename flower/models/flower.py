@@ -831,19 +831,25 @@ class FLOWERVLA(pl.LightningModule):
         # Sample actions
         return self.sample_actions(noise, features, inference=True)
 
+    @torch.no_grad()
     def step(self, obs: Dict, goal: Dict) -> torch.Tensor:
         """
         Do one step of inference, handling action chunking.
-        
+
         Args:
             obs: Dictionary of observations
             goal: Dictionary containing goal info
-            
+
         Returns:
             Current action prediction
         """
         if self.rollout_step_counter % self.multistep == 0:
-            self.pred_action_seq = self(obs, goal)
+            # Use autocast for bf16 inference if enabled
+            if getattr(self, 'use_bf16', False):
+                with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                    self.pred_action_seq = self(obs, goal)
+            else:
+                self.pred_action_seq = self(obs, goal)
         
         if not self.return_act_chunk:
             # Default: return current action
