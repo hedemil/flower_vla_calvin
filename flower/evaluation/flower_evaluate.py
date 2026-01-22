@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import sys
 import time
+from tracemalloc import start
 
 from omegaconf import OmegaConf
 
@@ -127,15 +128,18 @@ def evaluate_policy(model, env, lang_embeddings, cfg, num_videos=0, save_dir=Non
     model.reset()
 
     print("Measuring latency and throughput over 1000 steps...")
-    torch.cuda.synchronize()
-    start = time.time()
+    times = []
     for _ in range(1000):
+        torch.cuda.synchronize()
+        t0 = time.perf_counter()
         with torch.no_grad():
             _ = model.step(obs, goal)
-    torch.cuda.synchronize()
-    end = time.time()
-    latency = (end - start) / 1000
-    throughput = 1000 / (end - start)
+        torch.cuda.synchronize()
+        t1 = time.perf_counter()
+        times.append((t1 - t0))
+
+    latency = np.mean(times)
+    throughput = 1 / latency
     print(f"Latency: {latency:.4f} s/step, Throughput: {throughput:.2f} Hz")
     # --- End Measurement Block ---
 
