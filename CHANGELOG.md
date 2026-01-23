@@ -1,4 +1,6 @@
 # Changelog
+## 2026-01-23
+- Added inference time measurement to Calvin evaluation (`flower/evaluation/flower_eval_libero.py`)
 
 ## 2026-01-22
 - Added bfloat16 (bf16) autocast support for inference (~14-16% throughput improvement)

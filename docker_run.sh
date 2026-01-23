@@ -23,6 +23,7 @@ docker run -it --rm \
     -v $(pwd)/conf:/workspace/flower_vla_calvin/conf \
     -v $(pwd)/flower:/workspace/flower_vla_calvin/flower \
     -v $(pwd)/calvin_env:/workspace/flower_vla_calvin/calvin_env \
+    -v $(pwd)/LIBERO:/workspace/flower_vla_calvin/LIBERO \
     -v $(pwd)/configs:/workspace/flower_vla_calvin/configs \
     -v $(pwd)/dataset:/workspace/flower_vla_calvin/dataset \
     -v $(pwd)/checkpoints:/workspace/flower_vla_calvin/checkpoints \
