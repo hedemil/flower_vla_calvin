@@ -27,6 +27,19 @@ git add .
 git commit -m "Describe change"
 git push -u origin feature/my-feature
 ```
+### Open a Pull Request (personal repo)
+
+1. Open PR in your personal GitHub repo
+
+2. Review and merge into main
+
+- After merge:
+
+```bash
+cd emil
+git checkout main
+git pull
+```
 
 # Update company repo
 ```bash
