@@ -191,6 +191,39 @@ class EvaluateLibero:
             print("Will use random resets instead")
             initial_states = None
         
+        # --- Latency/Throughput Measurement Block ---
+        # Simple state setting using LIBERO's native format
+        if initial_states is not None and i < len(initial_states):
+            try:
+                obs = env.set_init_state(initial_states[i])
+                print(f"Successfully set initial state for episode {i}")
+            except Exception as e:
+                print(f"Failed to set initial state: {e}, using reset")
+                obs = env.get_observation()
+        else:
+            print(f"No initial state available for episode {i}, using reset")
+            obs = env.get_observation()
+        
+        data, goal = self.process_env_obs(obs, task_emb, task_i.language)
+        model.reset()
+
+        print("Measuring latency and throughput over 1000 steps...")
+        times = []
+        for _ in range(1000):
+            torch.cuda.synchronize()
+            t0 = time.perf_counter()
+            with torch.no_grad():
+                # data = raw_obs_to_tensor_obs(obs, task_emb, cfg)
+                actions = model.step(data, goal)
+            torch.cuda.synchronize()
+            t1 = time.perf_counter()
+            times.append((t1 - t0))
+
+        latency = np.mean(times)
+        throughput = 1 / latency
+        print(f"Latency: {latency:.4f} s/step, Throughput: {throughput:.2f} Hz")
+        # --- End Measurement Block ---
+        
         num_success = 0
         for i in tqdm(range(self.n_eval), desc="Evaluating"):
             store_video_this_rollout = i < store_video

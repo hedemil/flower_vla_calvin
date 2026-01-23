@@ -204,6 +204,7 @@ def get_default_mode_and_env(train_folder, dataset_path, checkpoint, env=None, l
         device = torch.device(f"cuda:{device_id}")
     else:
         device = 'cpu'
+        print("WARNING: Using CPU for evaluation.")
     
     cfg.datamodule.root_data_dir = dataset_path
     data_module = hydra.utils.instantiate(cfg.datamodule, num_workers=0)
