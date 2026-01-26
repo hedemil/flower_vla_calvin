@@ -193,16 +193,16 @@ class EvaluateLibero:
         
         # --- Latency/Throughput Measurement Block ---
         # Simple state setting using LIBERO's native format
-        # if initial_states is not None and i < len(initial_states):
-        #     try:
-        #         obs = env.set_init_state(initial_states[i])
-        #         print(f"Successfully set initial state for episode {i}")
-        #     except Exception as e:
-        #         print(f"Failed to set initial state: {e}, using reset")
-        #         obs = env.reset()
-        # else:
-        #     print(f"No initial state available for episode {i}, using reset")
-        obs = env.reset()
+        if initial_states is not None and i < len(initial_states):
+            try:
+                obs = env.set_init_state(initial_states[i])
+                print(f"Successfully set initial state for episode {i}")
+            except Exception as e:
+                print(f"Failed to set initial state: {e}, using reset")
+                obs = env.reset()
+        else:
+            print(f"No initial state available for episode {i}, using reset")
+            obs = env.reset()
         
         data, goal = self.process_env_obs(obs, task_emb, task_i.language)
         model.reset()
