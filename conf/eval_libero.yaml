@@ -7,7 +7,7 @@ eval_cfg_overwrite:
     num_sampling_steps: 4
 
 task_embedding_format: clip
-log_dir: /home/hk-project-sustainebot/ft4740/code/flower_vla_calvin/logs/
+log_dir: /workspace/logs/
 dataset_path: /home/hk-project-robolear/ft4740/code/calvin_d_old/dataset/task_D_D
 train_folder: /home/hk-project-sustainebot/ft4740/code/flower_vla_calvin/logs/best_checkpoints/calvin_abcd/.hydra/config.yaml
 checkpoint: /home/hk-project-sustainebot/ft4740/code/flower_vla_calvin/logs/best_checkpoints/calvin_abcd/seed_342/avg_seq_len=4.72.ckpt

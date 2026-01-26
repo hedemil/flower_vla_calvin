@@ -1,6 +1,6 @@
 --find-links https://download.pytorch.org/whl/cu116/torch_stable
 numpy>1.2
-hydra-core==1.1.1
+hydra-core>=1.1.1
 hydra-colorlog
 matplotlib
 opencv-python

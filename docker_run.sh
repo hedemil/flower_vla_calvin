@@ -9,7 +9,7 @@ echo "Running FlowerVLA Docker Container"
 echo "=========================================="
 
 # Create necessary directories if they don't exist
-mkdir -p dataset checkpoints outputs logs
+mkdir -p dataset checkpoints outputs logs ~/.libero
 
 # Run the container with GPU support
 docker run -it --rm \
@@ -23,15 +23,14 @@ docker run -it --rm \
     -v $(pwd)/conf:/workspace/flower_vla_calvin/conf \
     -v $(pwd)/flower:/workspace/flower_vla_calvin/flower \
     -v $(pwd)/calvin_env:/workspace/flower_vla_calvin/calvin_env \
-    -v $(pwd)/LIBERO:/workspace/flower_vla_calvin/LIBERO \
     -v $(pwd)/configs:/workspace/flower_vla_calvin/configs \
     -v $(pwd)/dataset:/workspace/flower_vla_calvin/dataset \
     -v $(pwd)/checkpoints:/workspace/flower_vla_calvin/checkpoints \
     -v $(pwd)/outputs:/workspace/flower_vla_calvin/outputs \
     -v $(pwd)/logs:/workspace/flower_vla_calvin/logs \
+    -v $(pwd)/preprocess:/workspace/flower_vla_calvin/preprocess \
     -v $(pwd)/run_evaluation.sh:/workspace/flower_vla_calvin/run_evaluation.sh \
-    -v $(pwd)/download_pretrained.sh:/workspace/flower_vla_calvin/download_pretrained.sh \
-    -v $(pwd)/QUICKSTART.md:/workspace/flower_vla_calvin/QUICKSTART.md \
+    -v $(pwd)/run_libero_evaluation.sh:/workspace/flower_vla_calvin/run_libero_evaluation.sh \
     -v ~/.cache/wandb:/root/.cache/wandb \
     -w /workspace/flower_vla_calvin \
     flower_vla_calvin:latest \
