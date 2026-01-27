@@ -133,6 +133,7 @@ RUN pip install hf_transfer
 
 # ===============================
 # Upgrade transformers for Florence-2 compatibility
+# Pin to version compatible with torch 2.2.2 (before CVE-2025-32434 patch)
 # ===============================
 RUN pip install transformers==4.46.3
 
