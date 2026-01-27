@@ -68,7 +68,7 @@ RUN pip install \
     glfw
 
 # Install PyTorch first (CUDA 11.8)
-RUN pip install torch==2.6.0 torchvision torchaudio \
+RUN pip install torch==2.2.2 torchvision torchaudio \
     --index-url https://download.pytorch.org/whl/cu118
 
 # ===============================
@@ -127,9 +127,19 @@ WORKDIR /workspace/flower_vla_calvin
 RUN pip install -r requirements.txt
 
 # ===============================
+# Install hf_transfer for faster HuggingFace downloads
+# ===============================
+RUN pip install hf_transfer
+
+# ===============================
 # Upgrade transformers for Florence-2 compatibility
 # ===============================
 RUN pip install transformers==4.46.3
+
+# ===============================
+# Upgrade wandb to latest version (LIBERO has old 0.13.1)
+# ===============================
+RUN pip install --upgrade wandb
 
 # ===============================
 # Set working directory for remaining installations
@@ -141,6 +151,7 @@ WORKDIR /workspace/flower_vla_calvin
 # ===============================
 ENV flower_calvin_ROOT=/workspace/flower_vla_calvin
 ENV PYTHONPATH=/workspace/flower_vla_calvin/LIBERO:${PYTHONPATH}
+ENV HF_HUB_ENABLE_HF_TRANSFER=1
 
 # Verify LIBERO can be imported (from same working directory)
 RUN echo "Verifying LIBERO installation..." && \

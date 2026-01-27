@@ -293,7 +293,7 @@ def main(cfg):
     if log_wandb:
         os.makedirs(log_dir / "wandb", exist_ok=False)
         run = wandb.init(
-            project='mode_calvin_eval',
+            project='FLOWER-Eval',
             entity=cfg.wandb_entity,
             # group=cfg.model_name + cfg.sampler_type + '_' + str(cfg.num_sampling_steps) + '_steps_' + str(cfg.num_sequences) + '_rollouts_',
             config=OmegaConf.to_object(cfg),

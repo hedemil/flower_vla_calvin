@@ -298,8 +298,9 @@ class FLOWERVLA(pl.LightningModule):
     def _setup_vlm(self, vlm_path: str, freeze_vision_tower: bool, freeze_florence: bool):
         """Initialize and configure the Florence-2 VLM"""
         print(f"Loading Florence-2 from {vlm_path}")
+        REVISION = "main"
 
-        self.vlm = AutoModelForCausalLM.from_pretrained(vlm_path, trust_remote_code=True, attn_implementation="eager")
+        self.vlm = AutoModelForCausalLM.from_pretrained(vlm_path, revision=REVISION, trust_remote_code=True, attn_implementation="eager")
         
         # Handle parameter freezing
         if freeze_florence:
@@ -310,7 +311,7 @@ class FLOWERVLA(pl.LightningModule):
                 param.requires_grad = True
 
         # Setup processor and tokenizer
-        self.processor = AutoProcessor.from_pretrained(vlm_path, trust_remote_code=True)
+        self.processor = AutoProcessor.from_pretrained(vlm_path, revision=REVISION, trust_remote_code=True)
         self.tokenizer = self.processor.tokenizer
         
         # Create prompt embedding
