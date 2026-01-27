@@ -236,6 +236,11 @@ class RolloutVideo:
                 video = video.unsqueeze(0)
             video = np.clip(video.numpy() * 255, 0, 255).astype(np.uint8)
 
+            mpy = wandb.util.get_module(
+                "moviepy.editor",
+                required='wandb.Video requires moviepy and imageio when passing raw data.  Install with "pip install moviepy imageio"',
+            )
+
             tensor = self._prepare_video(video)
             # Resize tensor if resolution scale is not 1.0
             if self.resolution_scale != 1.0:
@@ -244,9 +249,9 @@ class RolloutVideo:
 
             if save_as_video:
             # encode sequence of images into gif string
-                clip = ImageSequenceClip(list(tensor), fps=30)
+                clip = mpy.ImageSequenceClip(list(tensor), fps=30)
             else:
-                clip = ImageSequenceClip(list(tensor), fps=20)
+                clip = mpy.ImageSequenceClip(list(tensor), fps=20)
 
             tag = tag.replace("/", "_")
             if save_as_video:

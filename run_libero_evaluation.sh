@@ -58,11 +58,13 @@ python flower/evaluation/flower_eval_libero.py \
     train_folder="$CHECKPOINT_DIR" \
     checkpoint="$CHECKPOINT_DIR/model.safetensors" \
     benchmark_name="$BENCHMARK" \
+    log_dir="${SCRIPT_DIR}/evaluation/${BENCHMARK}_evaluation" \
+    wandb_entity=VLA-Thesis \
     device=0 \
     n_eval=20 \
     max_steps=520 \
     num_videos=5 \
-    log_wandb=false
+    log_wandb=true
 
 echo ""
 echo "=========================================="

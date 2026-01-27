@@ -20,6 +20,7 @@ docker run -it --rm \
     -e NVIDIA_DRIVER_CAPABILITIES=compute,utility \
     -e MUJOCO_GL=egl \
     -e PYOPENGL_PLATFORM=egl \
+    -e HF_HUB_ENABLE_HF_TRANSFER=1 \
     -v $(pwd)/conf:/workspace/flower_vla_calvin/conf \
     -v $(pwd)/flower:/workspace/flower_vla_calvin/flower \
     -v $(pwd)/calvin_env:/workspace/flower_vla_calvin/calvin_env \
@@ -27,10 +28,12 @@ docker run -it --rm \
     -v $(pwd)/dataset:/workspace/flower_vla_calvin/dataset \
     -v $(pwd)/checkpoints:/workspace/flower_vla_calvin/checkpoints \
     -v $(pwd)/outputs:/workspace/flower_vla_calvin/outputs \
+    -v $(pwd)/LIBERO/libero/datasets:/workspace/flower_vla_calvin/LIBERO/libero/datasets \
     -v $(pwd)/logs:/workspace/flower_vla_calvin/logs \
     -v $(pwd)/preprocess:/workspace/flower_vla_calvin/preprocess \
     -v $(pwd)/run_evaluation.sh:/workspace/flower_vla_calvin/run_evaluation.sh \
     -v $(pwd)/run_libero_evaluation.sh:/workspace/flower_vla_calvin/run_libero_evaluation.sh \
+    -v ~/.cache/huggingface:/root/.cache/huggingface \
     -v ~/.cache/wandb:/root/.cache/wandb \
     -w /workspace/flower_vla_calvin \
     flower_vla_calvin:latest \

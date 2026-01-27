@@ -75,12 +75,14 @@ class EvaluateLibero:
         n_eval,
         task_embedding_format,
         device,
+        log_wandb=False,
     ):
         self.model = model
         self.transforms = transforms
         self.log_dir = log_dir
 
         self.device = device
+        self.log_wandb = log_wandb
         self.task_order = 0
         self.bddl_folder = get_libero_path("bddl_files")
         self.init_states_folder = get_libero_path("init_states")
@@ -126,20 +128,20 @@ class EvaluateLibero:
 
     def start(self) -> None:
         successes = self.evaluate_policy(self.model, store_video=self.num_videos)
-        
+
         result_array = sum(successes) / len(successes)
-        
-        # Fix: Use colon instead of comma for dictionary
-        wandb.log({"eval_lh/avg_seq_len": torch.tensor(result_array)})
-        
-        for success, task_name in zip(successes, self.task_names):
-            wandb.log({f"eval_lh/sr_{task_name}": success})
-            
+
+        # Only log to wandb if enabled
+        if self.log_wandb:
+            wandb.log({"eval_lh/avg_seq_len": torch.tensor(result_array)})
+            for success, task_name in zip(successes, self.task_names):
+                wandb.log({f"eval_lh/sr_{task_name}": success})
+
         logger.info(f"eval_lh/avg_seq_len success rate {torch.tensor(result_array)}")
-        
+
         for success, task_name in zip(successes, self.task_names):
             logger.info(f"eval_lh/sr_{task_name} with success {success}")
-        
+
         print('done')
         print()
 
@@ -192,17 +194,7 @@ class EvaluateLibero:
             initial_states = None
         
         # --- Latency/Throughput Measurement Block ---
-        # Simple state setting using LIBERO's native format
-        if initial_states is not None and i < len(initial_states):
-            try:
-                obs = env.set_init_state(initial_states[i])
-                print(f"Successfully set initial state for episode {i}")
-            except Exception as e:
-                print(f"Failed to set initial state: {e}, using reset")
-                obs = env.reset()
-        else:
-            print(f"No initial state available for episode {i}, using reset")
-            obs = env.reset()
+        obs = env.reset()
         
         data, goal = self.process_env_obs(obs, task_emb, task_i.language)
         model.reset()
@@ -443,12 +435,13 @@ def main(cfg):
         n_eval=cfg.n_eval,
         task_embedding_format=cfg.task_embedding_format,
         device=cfg.device,
+        log_wandb=cfg.log_wandb,
     )
 
     if cfg.log_wandb:
         os.makedirs(log_dir / "wandb", exist_ok=False)
         run = wandb.init(
-            project='mode_libero_eval',
+            project='FLOWER-Eval-LIBERO',
             entity=cfg.wandb_entity,
             config=OmegaConf.to_object(cfg),
         )

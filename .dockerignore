@@ -55,6 +55,8 @@ dataset/
 data/
 checkpoints/
 outputs/
+LIBERO/libero/datasets/
+LIBERO/libero/libero/datasets/
 
 # OS
 .DS_Store

@@ -37,10 +37,12 @@ python flower/evaluation/flower_evaluate.py \
     train_folder=${SCRIPT_DIR}/checkpoints/calvin_d \
     checkpoint=${SCRIPT_DIR}/checkpoints/calvin_d/model.safetensors \
     dataset_path=${SCRIPT_DIR}/dataset/calvin_debug_dataset \
+    log_dir=${SCRIPT_DIR}/evaluation/calvin_debug_evaluation \
+    wandb_entity=VLA-Thesis\
     device=0 \
     num_sequences=100 \
     num_videos=5 \
-    log_wandb=false
+    log_wandb=true
 
 echo ""
 echo "=========================================="
