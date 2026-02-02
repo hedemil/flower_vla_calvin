@@ -13,15 +13,21 @@ Ultra-condensed guide for running on the cluster. See `CLUSTER_SETUP.md` for det
 # SSH to cluster
 
 
-# Clone repo
-git clone https://github.com/modulai/VLA-master-thesis-2026.git
-cd VLA-master-thesis-2026/emil
+# Clone repo WITH submodules (important!)
+git clone --recurse-submodules https://github.com/hedemil/flower_vla_calvin.git
+cd flower_vla_calvin
+git checkout scripts/train
 
 # Build Docker (15-30 min)
 docker build -t flower_vla_calvin:latest .
 
 # Download dataset
 ./download_data.sh debug
+
+# Preprocess dataset (REQUIRED)
+./docker_run.sh
+python preprocess/extract_by_key.py -i /workspace/flower_vla_calvin/dataset --in_task calvin_debug_dataset --in_split all -k rel_actions
+exit
 
 # Set WandB key
 export WANDB_API_KEY="your_key_here"
@@ -88,17 +94,19 @@ rm -rf logs/training_*
 ## Training Settings
 
 **Default (in run_training_cluster.sh):**
-- Batch size: 64
+- Batch size: 32 (16 per GPU with DDP)
 - GPUs: 2x A6000
 - Epochs: 100
 - Unfrozen model (full training)
 - Both camera views
 
+**Why batch_size=32?** With unfrozen Florence-2-large (570M params) and dual camera views, the forward pass activation memory requires significant space. Batch_size=64 causes OOM during forward pass even on 47GB A6000s.
+
 **To modify:** Edit `run_training_cluster.sh` or override parameters:
 
 ```bash
-# Smaller batch
-./run_training_cluster.sh batch_size=32
+# Even smaller batch (if still OOM)
+./run_training_cluster.sh batch_size=16
 
 # Fewer epochs (for testing)
 ./run_training_cluster.sh max_epochs=10
@@ -113,7 +121,7 @@ rm -rf logs/training_*
 
 | Issue | Solution |
 |-------|----------|
-| OOM error | Reduce `batch_size=32` or `batch_size=16` |
+| OOM error | Reduce `batch_size=16` or `batch_size=8` (default is now 32) |
 | Build fails | `docker system prune -a` then rebuild |
 | SSH drops | Use `tmux` or `screen` |
 | Slow download | Check VPN connection |
