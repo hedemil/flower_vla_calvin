@@ -21,7 +21,7 @@ cd VLA-master-thesis-2026/emil
 docker build -t flower_vla_calvin:latest .
 
 # Download dataset
-cd dataset && sh download_data.sh debug && cd ..
+./download_data.sh debug
 
 # Set WandB key
 export WANDB_API_KEY="your_key_here"

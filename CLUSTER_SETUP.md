@@ -95,16 +95,16 @@ docker images | grep flower_vla_calvin
 
 ```bash
 # Inside the emil directory
-cd dataset
-
 # Download the CALVIN dataset (choose one):
+
 # For debug dataset (small, ~1GB):
-sh download_data.sh debug
+./download_data.sh debug
 
 # For full ABC→D dataset (~50GB):
-# sh download_data.sh
+# ./download_data.sh ABC
 
-cd ..
+# For full ABCD dataset:
+# ./download_data.sh ABCD
 ```
 
 ### 5.2 Configure WandB
