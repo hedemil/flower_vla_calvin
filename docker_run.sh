@@ -33,6 +33,7 @@ docker run -it --rm \
     -v $(pwd)/preprocess:/workspace/flower_vla_calvin/preprocess \
     -v $(pwd)/run_evaluation.sh:/workspace/flower_vla_calvin/run_evaluation.sh \
     -v $(pwd)/run_libero_evaluation.sh:/workspace/flower_vla_calvin/run_libero_evaluation.sh \
+    -v $(pwd)/run_training.sh:/workspace/flower_vla_calvin/run_training.sh \
     -v ~/.cache/huggingface:/root/.cache/huggingface \
     -v ~/.cache/wandb:/root/.cache/wandb \
     -w /workspace/flower_vla_calvin \

@@ -4,8 +4,8 @@ _recursive_: false
 
 # VLM Configuration
 vlm_path: microsoft/Florence-2-large
-freeze_florence: False
-freeze_vision_tower: False
+freeze_florence: False  # Freeze entire Florence model to save memory
+freeze_vision_tower: False  # Freeze vision tower to save memory
 vlm_prompt_style: default
 token_dropout: 0.1  # Added token dropout parameter
 
@@ -17,12 +17,12 @@ action_dim: 7
 act_window_size: 10
 
 # pretraining stuff
-load_pretrained: True
+load_pretrained: False
 pretrained_model_path: /home/hk-project-sustainebot/ft4740/code/flower_vla_policy/logs/runs/2025-02-05/10-17-02/360000_model_weights.pt
 # /home/hk-project-sustainebot/ft4740/code/flower_vla/logs/runs/2025-02-19/11-15-41/200000_model_weights.pt
 # /home/hk-project-sustainebot/ft4740/code/flower_vla_policy/logs/runs/2025-02-05/10-17-02/360000_model_weights.pt joint + delta pret
 # Model flags
-use_second_view: True
+use_second_view: True  # Disable second view to save memory
 second_view_key: image_wrist
 action_type_adaln: True
 use_causal_attention: true
