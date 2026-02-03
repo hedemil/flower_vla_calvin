@@ -584,3 +584,43 @@ class ZeroEncoder(nn.Module):
         return torch.zeros((x.shape[0], self.dit_dim), device=self.device)
     
 
+class MeanFlowDecoder(nn.Module):
+    def __init__(self, dit_dim: int, action_dim: int, hidden_dim: int=None):
+        super().__init__()
+        hidden_dim = hidden_dim or self.dit_dim * 2
+
+        # Time embedding for h (timestep difference)
+        # Reuse TimestepEmbedder architecture (sinusodal embedding + MLP)
+        self.h_embedder = TimestepEmbedder(hidden_size=dit_dim)
+
+        # Decoder MLP
+        self.decoder = nn.Sequential(
+            nn.Linear(dit_dim * 2, hidden_dim), # dit_dim (features) + dit_dim (h embedding)
+            nn.SiLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.SiLU(),  
+            nn.Linear(hidden_dim, action_dim)
+        )
+
+    def forward(self, z: torch.Tensor, h: torch.Tensor) -> torch.Tensor:
+        """
+        Decode the mean action from latent representation z and timestep difference h.
+        
+        Args:
+            z: Latent representation tensor of shape [B, T, dit_dim].
+            h: Timestep difference (t - r) tensor of shape [B] or [B, 1, 1].
+        Returns:
+            Average velocity u [B, T, action_dim].
+        """
+        # Flatten h to [B] for embedding
+        h_flat = h.view(-1)
+
+        # Embed timestep difference
+        h_embed = self.h_embedder(h_flat)  # [B, dit_dim]
+        h_embed = h_embed.unsqueeze(1).expand(-1, z.shape[1], -1)  # [B, T, dit_dim]
+
+        # Concatenate and decode
+        z_h = torch.cat([z, h_embed], dim=-1)  # [B, T, dit_dim * 2]
+
+        return self.decoder(z_h)  # [B, T, action_dim]
+    
