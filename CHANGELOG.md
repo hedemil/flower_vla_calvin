@@ -1,4 +1,30 @@
 # Changelog
+## 2026-02-03
+- Added core Mean Flow implementation with time step conditioning
+  - Added `MeanFlowDecoder` MLP with h (time step difference `t - r`) embedding
+  - Added `_setup_dit_components_meanflow`, `decode_actions_meanflow`, `dit_forward_meanflow` functions
+  - Added time step sampling functions for t and r according to Mean Flow constraints
+  - Updated `docs/MEANFLOW.md` with detailed implementation notes (550 lines added)
+  - Modified `flower/models/flower.py` and `flower/models/networks/transformers.py` (811 insertions)
+- Merged training scripts PR (#4)
+- Organized code structure
+
+## 2026-02-02
+- Added training scripts for local and cluster execution
+  - Added `run_training.sh` for local training
+  - Added `run_training_cluster.sh` with SLURM support
+  - Added `CLUSTER_QUICKSTART.md` and `CLUSTER_SETUP.md` documentation
+- Improved SLURM configuration for cluster training
+- Updated `calvin_env` submodule
+- Fixed download dataset script
+
+## 2026-01-27
+- Setup improvements with wandb logging support
+  - Working evaluation for both LIBERO and Calvin with wandb logging
+  - Updated Dockerfile and docker_run.sh for better volume mounting
+  - Improved evaluation scripts with better wandb integration
+- Merged setup PR (#3)
+
 ## 2026-01-26
 - Fixed wandb logging bug in LIBERO evaluation - `wandb.log()` was being called even when `log_wandb=false`
 - Added `log_wandb` parameter to `EvaluateLibero` class and wrapped wandb calls in conditional checks

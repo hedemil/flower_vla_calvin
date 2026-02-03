@@ -133,7 +133,7 @@ class FLOWERVLA(pl.LightningModule):
         self.vlm_latent_dim = hidden_dim
         self.action_type_adaln = action_type_adaln
         self.use_proprio = use_proprio
-        # Setup DiT components
+        # Setup DiT components (_setup_dit_components_meanflow for Mean Flow)
         self._setup_dit_components(
             dit_dim=dit_dim,
             n_heads=n_heads,
