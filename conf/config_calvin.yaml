@@ -47,8 +47,8 @@ logger:
   group: mode
   log_model: false
   project: ${benchmark_name}
-  entity: bennoq
-  id: ???
+  entity: VLA-Thesis
+  id: null
 
 hydra:
   run:
