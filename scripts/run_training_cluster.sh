@@ -36,10 +36,18 @@ for arg in "$@"; do
     fi
 done
 
+# Parse batch_size from arguments (default 4)
+BATCH_SIZE=4
+for arg in "$@"; do
+    if [[ $arg == batch_size=* ]]; then
+        BATCH_SIZE="${arg#*=}"
+    fi
+done
+
 echo "Configuration:"
 echo "  Dataset: ${SCRIPT_DIR}/dataset/calvin_debug_dataset"
 echo "  GPUs: 2"
-echo "  Batch size: 4 (2 per GPU with FSDP)"
+echo "  Batch size: ${BATCH_SIZE}"
 echo "  Max epochs: ${MAX_EPOCHS}"
 echo "  Multi-GPU: FSDP strategy (memory optimized)"
 echo "  Camera views: Single (static only)"
@@ -56,7 +64,7 @@ python ${SCRIPT_DIR}/flower/training_calvin.py \
     root_data_dir=${SCRIPT_DIR}/dataset/calvin_debug_dataset \
     lang_folder=lang_annotations \
     log_dir=${SCRIPT_DIR}/logs/training_${TIMESTAMP} \
-    batch_size=4 \
+    batch_size=${BATCH_SIZE} \
     max_epochs=${MAX_EPOCHS} \
     devices=2 \
     logger.entity=VLA-Thesis \
