@@ -29,7 +29,7 @@ echo ""
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
 # Parse max_epochs from arguments (default 100)
-MAX_EPOCHS=100
+MAX_EPOCHS=10
 for arg in "$@"; do
     if [[ $arg == max_epochs=* ]]; then
         MAX_EPOCHS="${arg#*=}"
@@ -61,8 +61,6 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 # FSDP strategy shards model/optimizer across GPUs to reduce per-GPU memory
 # EMA delayed to avoid 4GB extra memory during early training
 python ${SCRIPT_DIR}/flower/training_calvin.py \
-    root_data_dir=${SCRIPT_DIR}/dataset/calvin_debug_dataset \
-    lang_folder=lang_annotations \
     log_dir=${SCRIPT_DIR}/logs/training_${TIMESTAMP} \
     batch_size=${BATCH_SIZE} \
     max_epochs=${MAX_EPOCHS} \
@@ -74,8 +72,10 @@ python ${SCRIPT_DIR}/flower/training_calvin.py \
     model.freeze_florence=False \
     model.freeze_vision_tower=False \
     model.use_second_view=False \
-    trainer.strategy=fsdp \
-    callbacks.ema.start_step=5000
+    trainer.limit_train_batches=10 \
+    rollout_lh_skip_epochs=100 \
+    callbacks.ema.start_step=100000
+
 
 echo ""
 echo "Training completed!"
