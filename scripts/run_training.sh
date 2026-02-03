@@ -14,7 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Check if datasets exist
 if [ ! -d "${SCRIPT_DIR}/dataset/calvin_debug_dataset" ]; then
     echo "ERROR: CALVIN debug dataset not found!"
-    echo "Please run: ./download_data.sh debug"
+    echo "Please run: scripts/download_data.sh debug"
     exit 1
 fi
 
