@@ -5,15 +5,15 @@ defaults:
   - override hydra/job_logging: colorlog
   - override hydra/hydra_logging: colorlog
 
-root_data_dir: /hkfs/work/workspace/scratch/ft4740-play3/task_ABCD_D
-lang_folder: lang_clip_resnet50
+root_data_dir: /workspace/flower_vla_calvin/dataset/calvin_debug_dataset
+lang_folder: lang_annotations
 
 log_dir: ./logs
 slurm: false
 seed: 242
 device: 'cuda'
-batch_size: 8 
-devices: 4
+batch_size: 4 # 8 per GPU
+devices: 2 # 4 numbers of GPUs
 act_dim: 7
 proprio_dims: 7
 obs_dim: 512
@@ -35,7 +35,8 @@ trainer:
   max_epochs: ${max_epochs}
   sync_batchnorm: True
   accelerator: gpu
-  strategy: "ddp" 
+  strategy: "ddp"
+  accumulate_grad_batches: 4  # Simulates effective batch_size=32
   limit_train_batches: 1000
   limit_val_batches: 4
 
