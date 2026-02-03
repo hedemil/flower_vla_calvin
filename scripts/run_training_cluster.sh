@@ -75,7 +75,6 @@ python ${SCRIPT_DIR}/flower/training_calvin.py \
     model.freeze_vision_tower=False \
     model.use_second_view=False \
     trainer.strategy=fsdp \
-    trainer.num_sanity_val_steps=2 \
     callbacks.ema.start_step=5000
 
 echo ""
