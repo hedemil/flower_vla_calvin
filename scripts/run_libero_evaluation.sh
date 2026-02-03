@@ -28,7 +28,7 @@ if [ ! -d "$CHECKPOINT_DIR" ] || [ ! "$(ls -A $CHECKPOINT_DIR)" ]; then
     echo "ERROR: Checkpoint not found at: $CHECKPOINT_DIR"
     echo ""
     echo "To download checkpoint, run:"
-    echo "  ./download_libero_checkpoint.sh $BENCHMARK"
+    echo "  scripts/download_libero_checkpoint.sh $BENCHMARK"
     exit 1
 fi
 

@@ -14,14 +14,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Check if checkpoint exists
 if [ ! -f "${SCRIPT_DIR}/checkpoints/calvin_d/model.safetensors" ]; then
     echo "ERROR: Calvin D checkpoint not found!"
-    echo "Please run: ./download_calvin_checkpoint.sh D first"
+    echo "Please run: scripts/download_calvin_checkpoint.sh D first"
     exit 1
 fi
 
 # Check if dataset exists
 if [ ! -d "${SCRIPT_DIR}/dataset/calvin_debug_dataset" ]; then
     echo "ERROR: CALVIN debug dataset not found!"
-    echo "Please run: cd dataset && sh download_data.sh debug"
+    echo "Please run: scripts/download_data.sh debug"
     exit 1
 fi
 

@@ -31,8 +31,9 @@ docker run -it --rm \
     -v $(pwd)/LIBERO/libero/datasets:/workspace/flower_vla_calvin/LIBERO/libero/datasets \
     -v $(pwd)/logs:/workspace/flower_vla_calvin/logs \
     -v $(pwd)/preprocess:/workspace/flower_vla_calvin/preprocess \
-    -v $(pwd)/run_evaluation.sh:/workspace/flower_vla_calvin/run_evaluation.sh \
-    -v $(pwd)/run_libero_evaluation.sh:/workspace/flower_vla_calvin/run_libero_evaluation.sh \
+    -v $(pwd)/scripts/run_evaluation.sh:/workspace/flower_vla_calvin/run_evaluation.sh \
+    -v $(pwd)/scripts/run_libero_evaluation.sh:/workspace/flower_vla_calvin/run_libero_evaluation.sh \
+    -v $(pwd)/scripts/run_training.sh:/workspace/flower_vla_calvin/run_training.sh \
     -v ~/.cache/huggingface:/root/.cache/huggingface \
     -v ~/.cache/wandb:/root/.cache/wandb \
     -w /workspace/flower_vla_calvin \
