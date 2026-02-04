@@ -8,6 +8,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "${SCRIPT_DIR}")"
 LIBERO_DIR="${PROJECT_ROOT}/LIBERO"
 
+# Detect Python command (python3 or python)
+if command -v python3 &> /dev/null; then
+    PYTHON=python3
+    PIP=pip3
+elif command -v python &> /dev/null; then
+    PYTHON=python
+    PIP=pip
+else
+    echo "Error: Neither python nor python3 found in PATH"
+    exit 1
+fi
+
 # Check if LIBERO directory exists
 if [ ! -d "${LIBERO_DIR}" ]; then
     echo "Error: LIBERO directory not found at ${LIBERO_DIR}"
@@ -19,9 +31,9 @@ fi
 cd "${LIBERO_DIR}"
 
 # Install LIBERO package if needed
-if ! python -c "import libero" 2>/dev/null; then
+if ! $PYTHON -c "import libero" 2>/dev/null; then
     echo "Installing LIBERO package..."
-    pip install -e . > /dev/null 2>&1
+    $PIP install -e . > /dev/null 2>&1
     if [ $? -ne 0 ]; then
         echo "Error: Failed to install LIBERO package"
         exit 1
@@ -33,7 +45,7 @@ fi
 download_benchmark() {
     local benchmark=$1
     echo "Downloading ${benchmark} to ${LIBERO_DIR}/LIBERO/${benchmark}..."
-    python benchmark_scripts/download_libero_datasets.py --datasets "${benchmark}" --use-huggingface
+    $PYTHON benchmark_scripts/download_libero_datasets.py --datasets "${benchmark}" --use-huggingface
     if [ $? -eq 0 ]; then
         echo "✓ Successfully downloaded ${benchmark}"
         echo "  saved folder: ${LIBERO_DIR}/LIBERO/${benchmark}"
