@@ -28,6 +28,7 @@ from flower.models.networks.transformers import (
     ActionSpaceEmbedderParameter,
     ZeroEncoder,
     FlowBlock, 
+    MeanFlowDecoder,
     stateless_norm
 )
 from flower.utils.lr_schedulers.tri_stage_scheduler import TriStageLRScheduler
@@ -86,6 +87,13 @@ class FLOWERVLA(pl.LightningModule):
 
         load_pretrained: bool = False,
         pretrained_model_path: str = None,
+
+        # Mean Flow specific
+        noise_dist: str = 'logit_normal',
+        P_mean: float = -0.4,
+        P_std: float = 1.0,
+        data_proportion: float = 1.0,
+        dtype: torch.dtype = torch.bfloat16,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -126,7 +134,7 @@ class FLOWERVLA(pl.LightningModule):
         self.vlm_latent_dim = hidden_dim
         self.action_type_adaln = action_type_adaln
         self.use_proprio = use_proprio
-        # Setup DiT components
+        # Setup DiT components (_setup_dit_components_meanflow for Mean Flow)
         self._setup_dit_components(
             dit_dim=dit_dim,
             n_heads=n_heads,
@@ -153,6 +161,24 @@ class FLOWERVLA(pl.LightningModule):
         self.optimizer_config = optimizer
         self.lr_scheduler_config = lr_scheduler
         self.optimizer_type = optimizer_type
+
+        # Mean Flow specific
+        self.noise_dist = noise_dist
+        self.data_proportion = data_proportion
+        self.dtype = dtype
+
+        # register as buffers so they:
+        # - move with .to(device)
+        # - are saved in state_dict
+        # - are NOT trainable
+        self.register_buffer(
+            "P_mean",
+            torch.tensor(P_mean, dtype=dtype)
+        )
+        self.register_buffer(
+            "P_std",
+            torch.tensor(P_std, dtype=dtype)
+        )
 
         if load_pretrained and pretrained_model_path is not None:
             self._load_pretrained_weights(pretrained_model_path)
@@ -377,7 +403,74 @@ class FLOWERVLA(pl.LightningModule):
             # Add encoder/decoder for this action
             self.action_encoders[action_name] =  Mlp(in_features=input_dim, hidden_features=dit_dim, out_features=dit_dim, bias=True)
             self.action_decoders[action_name] = nn.Linear(dit_dim, input_dim).to(self.device)
-                
+
+            if self.action_type_adaln:
+                self.adaln[action_name] = SharedAdaLNController(dit_dim, global_conddim=dit_dim, use_cross_attn=use_cross_attn)
+
+            if self.use_proprio:
+                # Add proprio encoder if needed for bimanual nav variant otherwise use zero encoder
+                self.proprio_encoders[action_name] = (Mlp(input_dim, dit_dim, out_features=dit_dim, drop=0.2).to(self.device) 
+                    if action_name == 'bimanual_nav' else ZeroEncoder(self.dit_dim, device=self.device))
+    
+    def _setup_dit_components_meanflow(self, **kwargs):
+        """Setup DiT model components"""
+        # Extract parameters
+        dit_dim = kwargs['dit_dim']
+        n_heads = kwargs['n_heads']
+        n_layers = kwargs['n_layers']
+        hidden_dim = kwargs['hidden_dim']
+        use_cross_attn = kwargs['use_cross_attn']
+        use_rope = kwargs['use_rope']
+        use_nope = kwargs['use_nope']
+
+        self.action_encoders = nn.ModuleDict()
+        self.action_decoders = nn.ModuleDict()
+        if self.use_proprio:
+            self.proprio_encoders = nn.ModuleDict()
+            
+        self.adaln = nn.ModuleDict() if self.action_type_adaln else None
+
+        # Core components
+        self.cond_linear = nn.Linear(hidden_dim, dit_dim, bias=False)
+        self.t_embedder = TimestepEmbedder(dit_dim)
+        self.cond_norm = RmsNorm(hidden_dim)
+        self.frequency_embedder = FreqEmbedder(dit_dim)
+        self.action_space_embedder = ActionSpaceEmbedderParameter(dit_dim, max_actions=len(self.action_space_index.action_spaces))
+
+
+        # Positional encoding if not using ROPE/NOPE
+        if not use_rope and not use_nope:
+            self.positional_encoding = nn.Parameter(torch.randn(1, kwargs['act_window_size'], dit_dim) * 0.1)
+
+        # DiT blocks
+        self.dit = nn.ModuleList([
+            FlowBlock(
+                dit_dim, n_heads,
+                attn_pdrop=kwargs['attn_pdrop'],
+                resid_pdrop=kwargs['resid_pdrop'],
+                mlp_pdrop=kwargs['mlp_pdrop'],
+                use_cross_attn=use_cross_attn,
+                use_rope=use_rope,
+                query_seq_len=kwargs['query_seq_len'],
+                rope_theta=kwargs['rope_theta'],
+
+            ) for _ in range(n_layers)
+        ])
+
+        # Create components per action space
+        for action_name, action_idx in self.action_space_index.action_spaces.items():
+            input_dim = self.action_space_index.get_action_dim(action_idx)
+            
+            # Add encoder/decoder for this action
+            self.action_encoders[action_name] =  Mlp(in_features=input_dim, hidden_features=dit_dim, out_features=dit_dim, bias=True)
+            
+            # -------- Replaced decoder with MeanFlowDecoder -------- #
+            self.action_decoders[action_name] = MeanFlowDecoder(
+                dit_dim=dit_dim,
+                action_dim=input_dim,
+                hidden_dim=dit_dim * 2
+            ).to(self.device)
+
             if self.action_type_adaln:
                 self.adaln[action_name] = SharedAdaLNController(dit_dim, global_conddim=dit_dim, use_cross_attn=use_cross_attn)
 
@@ -630,6 +723,141 @@ class FLOWERVLA(pl.LightningModule):
             
         # Decode and return
         return self.decode_actions(cx, action_type, valid_dims)
+    
+    def dit_forward_meanflow(self, z: torch.Tensor, t: torch.Tensor, h: torch.Tensor, cond_dict: dict) -> torch.Tensor:
+        """
+        Forward pass through the DiT blocks using MeanFlowDecoder.
+
+        Args: 
+            z: Latent actions [B, T, action_dim]
+            t: Current timestep [B] or  [B, 1, 1]
+            h: Timestep difference (t - r) [B] or [B, 1, 1]
+            cond_dict: Conditioning dictionary
+        """
+        default_dtype = next(self.parameters()).dtype
+        B, t_seq, d = z.shape
+        
+        # Get conditioning information
+        cond = cond_dict['features'].to(default_dtype)
+        frequency_embeds = cond_dict['frequency_embeds'].squeeze(1).to(default_dtype)
+        action_type = cond_dict['action_type'].to(self.device)
+        
+        # Handle proprioception
+        if self.use_proprio and cond_dict['proprio'] is not None:
+            proprio = cond_dict['proprio'].to(default_dtype)
+            proprio_embeds = self.encode_proprio(proprio, action_type, frequency_embeds.shape)
+        else:
+            proprio_embeds = torch.zeros_like(frequency_embeds)
+        
+        # Encode actions
+        z, valid_dims = self.encode_actions(z, action_type)
+        
+        # Add positional encoding if not using ROPE/NOPE
+        if not self.use_rope and not self.use_nope:
+            z = z + self.positional_encoding
+        
+        # Process embeddings
+        t_emb = stateless_norm(self.t_embedder(t)) + \
+                stateless_norm(frequency_embeds).squeeze(1) + \
+                stateless_norm(proprio_embeds).squeeze(1)
+        
+        cond = self.cond_linear(self.cond_norm(cond))
+        
+        # Set up conditioning
+        if self.use_adaln_cond:
+            vlm_token = cond[:, 0, :] if self.use_readout_token else cond.mean(dim=1)
+            global_cond = vlm_token + t_emb
+        else:
+            global_cond = t_emb
+        
+        # Setup context
+        cx = z
+        context = cond if self.use_cross_attn else None
+        
+        # Get adaln signals
+        if not self.action_type_adaln:
+            global_adaln = self.adaln(global_cond)
+        else:
+            global_adaln = self.action_specific_adaln(global_cond, action_type)
+        
+
+        # Process through DiT blocks
+        for layer in self.dit:
+            cx = layer(
+                cx, 
+                global_cond, 
+                context=context, 
+                is_causal=True, 
+                global_adaln=global_adaln
+            )
+            
+        # Decode and return
+        return self.decode_actions_meanflow(cx, h, action_type, valid_dims)
+    
+    def noise_distribution(self):
+        if self.noise_dist == 'logit_normal':
+            return self._logit_normal_dist
+        elif self.noise_dist == 'uniform':
+            return self._uniform_dist
+        else:
+            raise ValueError(f"Unknown noise distribution: {self.noise_dist}")
+
+    def _logit_normal_dist(self, bz):
+        """
+        Do math in float32 for stability, then cast back to self.dtype (bfloat16).
+        """
+        rnd_normal = torch.randn(
+            bz, 1, 1, 1,
+            device=self.P_mean.device,
+            dtype=torch.float32
+        )
+
+        out = torch.sigmoid(
+            rnd_normal * self.P_std.float() + self.P_mean.float()
+        )
+
+        return out.to(self.dtype)
+
+
+    def _uniform_dist(self, bz):
+        return torch.rand(
+            bz, 1, 1, 1,
+            device=self.P_mean.device,
+            dtype=self.dtype
+        )
+
+    
+    def sample_tr(self, b: int, data_proportion: float = 0.75):
+        """
+        Sample timesteps t and r with contraint t >= r.
+        For data_proportion of samples, set r = t (instantaneous velocity).
+
+        Args: 
+            b: Batch size
+            data_proportion: Fraction of batch where r = t
+
+        Returns:
+            t: Sampled timesteps [B]
+            r: Sampled timesteps [B]
+        """
+        t = self.noise_distribution()(b)
+        r = self.noise_distribution()(b)
+
+        # ensure t >= r element-wise
+        t, r = torch.maximum(t, r), torch.minimum(t, r)
+
+        data_size = int(b * data_proportion)
+
+        zero_mask = torch.arange(
+            b,
+            device=t.device
+        ) < data_size
+        zero_mask = zero_mask.view(b, 1, 1, 1)
+
+        r = torch.where(zero_mask, t, r)
+
+        return t, r
+
 
     def encode_proprio(self, proprio: torch.Tensor, action_type: torch.Tensor, output_shape) -> torch.Tensor:
         """
@@ -793,6 +1021,36 @@ class FLOWERVLA(pl.LightningModule):
                 action_dim = self.action_space_index.get_action_dim(action_idx)
                 
                 pred = self.action_decoders[action_name](z)
+                # Only assign to valid dimensions
+                decoded = pred
+        return decoded
+    
+    # -------- Decode actions using MeanFlowDecoder (alternative) -------- #
+    def decode_actions_meanflow(
+            self, 
+            z: torch.Tensor, 
+            h: torch.Tensor,
+            action_type: torch.Tensor,
+            valid_dims: torch.Tensor
+        ) -> torch.Tensor:
+        """Decode actions using MeanFlowDecoder.
+        Args:
+            z: Latent features from DiT [B, T, dit_dim]
+            h: Timestep difference (t - r) [B]
+            action_type: Action type indices [B, T, action_dim]
+            valid_dims: Valid dimensions mask [B, T, action_dim] 
+        """
+        default_dtype = next(self.parameters()).dtype
+        batch_size = z.shape[0]
+        max_action_dim = self.action_dim
+        decoded = torch.zeros(batch_size, z.shape[1], max_action_dim, 
+                        device=self.device).to(default_dtype)
+        
+        for action_name, action_idx in self.action_space_index.action_spaces.items():
+            mask = (action_type == action_idx)
+            if mask.any():
+                # Pass h to the decoder
+                pred = self.action_decoders[action_name](z, h)
                 # Only assign to valid dimensions
                 decoded = pred
         return decoded

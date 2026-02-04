@@ -39,9 +39,9 @@ print_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 print_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-# Check if script is run from emil directory
-if [ ! -f "download_calvin_checkpoint.sh" ]; then
-    print_error "This script must be run from the emil/ directory"
+# Check if script is run from project root
+if [ ! -f "scripts/download_calvin_checkpoint.sh" ]; then
+    print_error "This script must be run from the project root (emil/) directory"
     exit 1
 fi
 
@@ -104,7 +104,7 @@ if [ -d "$CALVIN_DIR" ] && [ "$(ls -A $CALVIN_DIR)" ]; then
 else
     print_info "Downloading CALVIN dataset: $CALVIN_SPLIT split..."
     cd dataset
-    bash download_data.sh "$CALVIN_SPLIT"
+    bash ../scripts/download_data.sh "$CALVIN_SPLIT"
     cd ..
     print_success "CALVIN dataset downloaded"
 fi
@@ -164,7 +164,7 @@ if [ "$SKIP_LIBERO" = "false" ]; then
 
     # Download each specified benchmark
     for benchmark in $LIBERO_BENCHMARKS; do
-        if [ -d "$benchmark" ] && [ "$(ls -A $benchmark)" ]; then
+        if [ -d "LIBERO/$benchmark" ] && [ "$(ls -A LIBERO/$benchmark)" ]; then
             print_warning "LIBERO dataset '$benchmark' already exists. Skipping."
         else
             print_info "Downloading $benchmark..."
@@ -198,7 +198,7 @@ else
         print_success "Calvin checkpoint already exists for split: $CALVIN_SPLIT"
     elif [ "$DOWNLOAD_CALVIN_CHECKPOINT" = "true" ]; then
         print_info "Downloading Calvin checkpoint for split: $CALVIN_SPLIT"
-        bash download_calvin_checkpoint.sh "$CALVIN_SPLIT"
+        bash scripts/download_calvin_checkpoint.sh "$CALVIN_SPLIT"
         print_success "Calvin checkpoint downloaded"
     else
         print_info "Checkpoint download skipped. To download later, run:"
@@ -224,7 +224,7 @@ if [ "$SKIP_LIBERO" = "false" ] && [ "$DOWNLOAD_LIBERO_CHECKPOINT" = "true" ]; t
             print_success "LIBERO checkpoint already exists for: $benchmark"
         else
             print_info "Downloading LIBERO checkpoint for: $benchmark"
-            if bash download_libero_checkpoint.sh "$benchmark" 2>/dev/null; then
+            if bash scripts/download_libero_checkpoint.sh "$benchmark" 2>/dev/null; then
                 print_success "LIBERO checkpoint downloaded for: $benchmark"
             else
                 print_warning "Checkpoint not available for $benchmark (may not exist on HuggingFace)"
@@ -316,8 +316,8 @@ echo "Setup Complete!"
 echo "=========================================="
 echo ""
 print_info "Next steps:"
-echo "  1. Build Docker image:       ./docker_build.sh"
-echo "  2. Run Docker container:     ./docker_run.sh"
+echo "  1. Build Docker image:       scripts/docker_build.sh"
+echo "  2. Run Docker container:     scripts/docker_run.sh"
 echo ""
 print_info "Inside container - Training:"
 echo "  - CALVIN:  python flower/training.py datamodule=calvin"
@@ -334,8 +334,8 @@ if [ "$SKIP_LIBERO" = "false" ]; then
 fi
 echo ""
 print_info "Additional commands:"
-echo "  - Download more CALVIN checkpoints:  ./download_calvin_checkpoint.sh [D|ABC|ABCD]"
-echo "  - Download more LIBERO checkpoints:  ./download_libero_checkpoint.sh [benchmark_name]"
+echo "  - Download more CALVIN checkpoints:  scripts/download_calvin_checkpoint.sh [D|ABC|ABCD]"
+echo "  - Download more LIBERO checkpoints:  scripts/download_libero_checkpoint.sh [benchmark_name]"
 echo ""
 print_info "Documentation: SETUP_GUIDE.md | QUICKSTART.md"
 echo ""
