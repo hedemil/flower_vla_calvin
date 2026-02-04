@@ -68,7 +68,8 @@ fi
 download_benchmark() {
     local benchmark=$1
     echo "Downloading ${benchmark} to ${LIBERO_DIR}/LIBERO/${benchmark}..."
-    $PYTHON benchmark_scripts/download_libero_datasets.py --datasets "${benchmark}" --use-huggingface
+    # Using default download source (Google Drive) instead of HuggingFace to avoid cache permission issues
+    $PYTHON benchmark_scripts/download_libero_datasets.py --datasets "${benchmark}"
     if [ $? -eq 0 ]; then
         echo "✓ Successfully downloaded ${benchmark}"
         echo "  saved folder: ${LIBERO_DIR}/LIBERO/${benchmark}"
