@@ -32,13 +32,33 @@ cd "${LIBERO_DIR}"
 
 # Install LIBERO package if needed
 if ! $PYTHON -c "import libero" 2>/dev/null; then
-    echo "Installing LIBERO package..."
-    $PIP install -e . > /dev/null 2>&1
+    echo "Installing LIBERO package and dependencies..."
+    $PIP install -e . --quiet
     if [ $? -ne 0 ]; then
         echo "Error: Failed to install LIBERO package"
         exit 1
     fi
     echo "LIBERO package installed successfully"
+fi
+
+# Check for required dependencies
+MISSING_DEPS=()
+if ! $PYTHON -c "import tqdm" 2>/dev/null; then
+    MISSING_DEPS+=("tqdm")
+fi
+if ! $PYTHON -c "import huggingface_hub" 2>/dev/null; then
+    MISSING_DEPS+=("huggingface_hub")
+fi
+
+# Install missing dependencies
+if [ ${#MISSING_DEPS[@]} -gt 0 ]; then
+    echo "Installing missing dependencies: ${MISSING_DEPS[*]}"
+    $PIP install "${MISSING_DEPS[@]}" --quiet
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to install dependencies"
+        exit 1
+    fi
+    echo "Dependencies installed successfully"
 fi
 
 # Function to download a benchmark
