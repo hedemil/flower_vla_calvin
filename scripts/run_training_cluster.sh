@@ -28,8 +28,8 @@ echo ""
 # Create timestamp for unique run identification
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
-# Parse max_epochs from arguments (default 100)
-MAX_EPOCHS=10
+# Parse max_epochs from arguments (default 25 for D->D training, ~40k steps)
+MAX_EPOCHS=25
 for arg in "$@"; do
     if [[ $arg == max_epochs=* ]]; then
         MAX_EPOCHS="${arg#*=}"
@@ -44,14 +44,24 @@ for arg in "$@"; do
     fi
 done
 
+# Parse rollout_skip from arguments (default 20 - evaluate near end)
+ROLLOUT_SKIP=20
+for arg in "$@"; do
+    if [[ $arg == rollout_skip=* ]]; then
+        ROLLOUT_SKIP="${arg#*=}"
+    fi
+done
+
 echo "Configuration:"
 echo "  Dataset: ${SCRIPT_DIR}/dataset/calvin_debug_dataset"
 echo "  GPUs: 2"
-echo "  Batch size: ${BATCH_SIZE}"
+echo "  Batch size: ${BATCH_SIZE} (effective batch: ${BATCH_SIZE}*2*4=32 with grad accum)"
 echo "  Max epochs: ${MAX_EPOCHS}"
+echo "  Rollout evaluation after: ${ROLLOUT_SKIP} epochs"
 echo "  Multi-GPU: FSDP strategy (memory optimized)"
 echo "  Camera views: Single (static only)"
 echo "  EMA: Delayed start (step 5000)"
+echo "  Checkpoints: Saved to logs/training_${TIMESTAMP}/checkpoints"
 echo ""
 
 # Set CUDA memory allocator config for better memory management
@@ -60,6 +70,7 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 # Run training with memory-optimized settings
 # FSDP strategy shards model/optimizer across GPUs to reduce per-GPU memory
 # EMA delayed to avoid 4GB extra memory during early training
+# Checkpoints auto-saved by Lightning: last.ckpt + best based on val loss
 python ${SCRIPT_DIR}/flower/training_calvin.py \
     log_dir=${SCRIPT_DIR}/logs/training_${TIMESTAMP} \
     batch_size=${BATCH_SIZE} \
@@ -67,16 +78,29 @@ python ${SCRIPT_DIR}/flower/training_calvin.py \
     devices=2 \
     logger.entity=VLA-Thesis \
     logger.project=calvin_a6000 \
-    logger.group=cluster_training \
-    logger.name=a6000_2gpu_fsdp_${TIMESTAMP} \
+    logger.group=calvin_d_to_d \
+    logger.name=d2d_2gpu_${TIMESTAMP} \
     model.freeze_florence=False \
     model.freeze_vision_tower=False \
     model.use_second_view=False \
-    trainer.limit_train_batches=10 \
-    rollout_lh_skip_epochs=100 \
-    callbacks.ema.start_step=100000
+    rollout_lh_skip_epochs=${ROLLOUT_SKIP} \
+    callbacks.ema.start_step=5000 \
+    callbacks.checkpoint.save_top_k=3 \
+    callbacks.checkpoint.monitor=val/loss \
+    callbacks.checkpoint.mode=min \
+    callbacks.checkpoint.save_last=True
 
 
 echo ""
+echo "=========================================="
 echo "Training completed!"
-echo "Logs saved to: ${SCRIPT_DIR}/logs/training_${TIMESTAMP}"
+echo "=========================================="
+echo "Logs: ${SCRIPT_DIR}/logs/training_${TIMESTAMP}"
+echo "Checkpoints: ${SCRIPT_DIR}/logs/training_${TIMESTAMP}/checkpoints/"
+echo "  - last.ckpt (most recent)"
+echo "  - epoch=X-step=Y.ckpt (top 3 best by val/loss)"
+echo ""
+echo "To backup checkpoints:"
+echo "  mkdir -p ~/backups/calvin_d2d_${TIMESTAMP}"
+echo "  cp -r ${SCRIPT_DIR}/logs/training_${TIMESTAMP}/checkpoints ~/backups/calvin_d2d_${TIMESTAMP}/"
+echo ""
