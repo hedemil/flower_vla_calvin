@@ -49,6 +49,9 @@ fi
 if ! $PYTHON -c "import huggingface_hub" 2>/dev/null; then
     MISSING_DEPS+=("huggingface_hub")
 fi
+if ! $PYTHON -c "import termcolor" 2>/dev/null; then
+    MISSING_DEPS+=("termcolor")
+fi
 
 # Install missing dependencies
 if [ ${#MISSING_DEPS[@]} -gt 0 ]; then
