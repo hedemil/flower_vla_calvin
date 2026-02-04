@@ -22,11 +22,33 @@ git checkout scripts/train
 docker build -t flower_vla_calvin:latest .
 
 # Download dataset
+# For quick testing:
 ./download_data.sh debug
 
-# Preprocess dataset (REQUIRED)
+# For Calvin D->D training (FULL dataset, ~50GB):
+./download_data.sh D
+
+# For Calvin ABC->D (~150GB):
+./download_data.sh ABC
+
+# For Calvin ABCD->D (full, ~200GB):
+./download_data.sh ABCD
+
+# Preprocess dataset (REQUIRED - do this for whichever dataset you downloaded)
 ./docker_run.sh
+
+# For debug dataset:
 python preprocess/extract_by_key.py -i /workspace/flower_vla_calvin/dataset --in_task calvin_debug_dataset --in_split all -k rel_actions
+
+# For Calvin D:
+python preprocess/extract_by_key.py -i /workspace/flower_vla_calvin/dataset --in_task task_D_D --in_split all -k rel_actions
+
+# For Calvin ABC:
+python preprocess/extract_by_key.py -i /workspace/flower_vla_calvin/dataset --in_task task_ABC_D --in_split all -k rel_actions
+
+# For Calvin ABCD:
+python preprocess/extract_by_key.py -i /workspace/flower_vla_calvin/dataset --in_task task_ABCD_D --in_split all -k rel_actions
+
 exit
 
 # Set WandB key
@@ -45,7 +67,18 @@ tmux new -s flower
 ./docker_run.sh
 
 # Inside Docker: Run training
-./run_training_cluster.sh
+
+# With DEBUG dataset (for testing):
+./run_training_cluster.sh dataset=debug
+
+# With CALVIN D dataset (for D->D training):
+./run_training_cluster.sh dataset=D
+
+# With CALVIN ABC dataset:
+./run_training_cluster.sh dataset=ABC
+
+# With CALVIN ABCD dataset:
+./run_training_cluster.sh dataset=ABCD
 
 # Detach from tmux: Ctrl+B, then D
 ```
@@ -139,15 +172,29 @@ python flower/training_calvin.py \
 
 **Full training run:**
 ```bash
-# Default D→D training (recommended)
-./run_training_cluster.sh
+# D→D training (recommended for single environment)
+./run_training_cluster.sh dataset=D
 
-# Override parameters if needed
-./run_training_cluster.sh max_epochs=30 rollout_skip=25
+# ABC→D training (3 environments, longer training time)
+./run_training_cluster.sh dataset=ABC max_epochs=30
+
+# ABCD→D training (full dataset, follows paper exactly)
+./run_training_cluster.sh dataset=ABCD max_epochs=30
+
+# Override multiple parameters
+./run_training_cluster.sh dataset=D max_epochs=30 rollout_skip=25
 
 # Smaller batch if OOM occurs
-./run_training_cluster.sh batch_size=2
+./run_training_cluster.sh dataset=D batch_size=2
 ```
+
+**Dataset comparison:**
+| Dataset | Size | Environments | Recommended Epochs | Training Time (2×A6000) |
+|---------|------|--------------|-------------------|------------------------|
+| debug | ~1GB | D (small subset) | 2-5 (testing) | 1-2 hours |
+| D | ~50GB | D only | 25 | 20-40 hours |
+| ABC | ~150GB | A, B, C → D | 30 | 60-90 hours |
+| ABCD | ~200GB | A, B, C, D → D | 30 | 80-120 hours |
 
 ---
 
@@ -196,18 +243,28 @@ python flower/training_calvin.py \
 
 ---
 
-## Expected Times (2x A6000, Calvin D→D)
+## Expected Times (2x A6000)
 
-- Docker build: 15-30 min
-- Dataset download (debug): 5 min
-- Dataset preprocessing: 5-10 min
-- Training (1 epoch): 45-90 min (depends on dataset size)
-- **Training (25 epochs, full D→D):** 20-40 hours
-- Rollout evaluation (after epoch 20): ~15-30 min per rollout
+**Setup:**
+- Docker build: 15-30 min (one-time)
+- Dataset download:
+  - debug: ~5 min
+  - D: ~20-30 min
+  - ABC: ~60-90 min
+  - ABCD: ~90-120 min
+- Dataset preprocessing: 5-15 min per dataset
 
-**Training progress indicators:**
-- Steps per epoch: Varies by dataset (~1600-2000 for debug dataset)
-- Target: ~40k steps total (as per paper)
+**Training:**
+| Dataset | Epochs | Steps/Epoch (approx) | Time per Epoch | Total Training Time |
+|---------|--------|---------------------|----------------|---------------------|
+| debug | 2 | 50-100 | 5-10 min | 10-20 min |
+| D | 25 | 1600-2000 | 45-90 min | 20-40 hours |
+| ABC | 30 | 4800-6000 | 2-3 hours | 60-90 hours |
+| ABCD | 30 | 6400-8000 | 3-4 hours | 90-120 hours |
+
+**Other:**
+- Rollout evaluation: ~15-30 min per rollout
+- Target total steps: ~40k (as per paper)
 - Checkpoints saved automatically every N steps (configured in config)
 
 ---
