@@ -28,11 +28,12 @@
 ## 2026-01-26
 - Fixed wandb logging bug in LIBERO evaluation - `wandb.log()` was being called even when `log_wandb=false`
 - Added `log_wandb` parameter to `EvaluateLibero` class and wrapped wandb calls in conditional checks
-- Successfully ran LIBERO spatial evaluation with 100% success rate (20/20 episodes)
+- Successfully ran LIBERO spatial evaluation
 - Measured inference performance: Latency 0.0120 s/step, Throughput 83.59 Hz
 
 ## 2026-01-23
-- Added inference time measurement to Calvin evaluation (`flower/evaluation/flower_eval_libero.py`)
+- Added inference time measurement to Calvin evaluation (`flower/evaluation/flower_evaluate.py`)
+- Added inference time measurement to LIBERO evaluation (`flower/evaluation/flower_eval_libero.py`)
 
 ## 2026-01-22
 - Added bfloat16 (bf16) autocast support for inference (~14-16% throughput improvement)
