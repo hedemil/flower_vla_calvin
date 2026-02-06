@@ -88,7 +88,7 @@ class FLOWERVLA(pl.LightningModule):
         load_pretrained: bool = False,
         pretrained_model_path: str = None,
 
-        # Mean Flow specific
+        # Mean Flow specific as per papers best results
         noise_dist: str = 'logit_normal',
         P_mean: float = -0.4,
         P_std: float = 1.0,
@@ -637,6 +637,90 @@ class FLOWERVLA(pl.LightningModule):
         }
 
         return loss, losses_dict
+    
+    def meanflow_loss(self, cond, actions, dataset_idx=None):
+        """
+        Compute the Mean Flow loss using JVP (Jacobian Vector Product)
+        Based on official PyTorch implementation:
+        https://github.com/Gsunshine/py-meanflow/blob/main/meanflow/models/meanflow.py
+        """
+        default_dtype = next(self.parameters()).dtype
+        
+        if len(actions.shape) == 4:
+            actions = actions.squeeze(1)
+        b = actions.size(0)
+        device = actions.device
+        actions = actions.to(default_dtype)
+
+        # Sample t and r with contraint t >= r
+        t, r = self.sample_tr(b)
+
+        # Interpolate between actions and noise z_t = (1-t)*x + t*e
+        texp = t.view([b] + [1] * (actions.dim() - 1))
+        rexp = r.view([b] + [1] * actions.dim() - 1)
+
+        e = torch.randn_like(actions, device=device).to(default_dtype)
+    
+        # Interpolate
+        z = (1 - texp) * actions + texp * e
+
+        v = e - actions
+
+        # Optional: Guidance velocity (implement if using CFG)
+        # v_g = self.guidance_fn(v, z, t, cond)
+        # y_inp, v_g = self.cond_drop(v, v_g, cond)
+
+        # Define network function for JVP
+        def u_func(z_input, t_input, r_input):
+            """
+            Network function that computes u(z, t, h=t-r)
+            """
+            h_input = t_input - r_input
+            return self.dit_forward_meanflow(z_input, t_input, h_input, cond)
+
+        # Define tangent vectors for JVP
+        # JVP computes du/dz * v + du/dt*dt/dt + dy/dr*dr/dt
+        dtdt = torch.ones_like(t).view([b] + 1) * (actions.dim() - 1)
+        drdt = torch.zeros_like(t).view([b] + 1) * (actions.dim() - 1)
+
+        # Compute u and du/dt using JVP (single forward pass)
+        with torch.amp.autocast("cuda", enabled=False):
+            # JVP returns: (u, du/dz * v + du/dt * dtdt + du/dt * drdt)
+            # drdt = 0, dtdt = 1, we get: (u, du/dz * v + du/dt)
+            u_pred, dudt = torch.func.jvp(
+                u_func,
+                (z, rexp, texp), # Primals (input)
+                (v, drdt, dtdt) # Tangents (directions) as per Mean Flow paper (v, 0, 1)
+            )
+
+            # Compute target average velocity
+            # u_tgt = v - h * du/dt
+            h = (texp - rexp).clamp(min=0.0, max=1.0)
+            u_tgt = (v - h * dudt).detach()
+
+            # Compute loss (L2 squared)
+            loss = (u_pred - u_tgt) ** 2
+            loss = loss.sum(dim=(1,2)) # Sum over sequence
+
+            # Adaptive weighting
+            norm_eps = 0.01
+            norm_p = 1.0
+            adp_wt = (loss.detach() + norm_eps) ** norm_p
+            loss = loss / adp_wt
+
+            loss = loss.mean() # Mean over batch
+        
+        # Monitor metrics
+        with torch.no_grad():
+            v_loss = ((u_pred - v) ** 2).mean()
+
+        losses_dict = {
+            "loss": loss.item(),
+            "v_loss": v_loss.item(),
+            "h_mean": h.mean().item()
+        }
+            
+        return loss, losses_dict
 
     def sample_actions(self, z: torch.Tensor, cond: Dict[str, torch.Tensor], inference: bool=False):
         """
@@ -659,6 +743,7 @@ class FLOWERVLA(pl.LightningModule):
             z = z - dt_tensor * vc
 
         return z.clamp(-1, 1)
+        
 
     def dit_forward(self, z: torch.Tensor, t: torch.Tensor, cond_dict: dict) -> torch.Tensor:
         """
