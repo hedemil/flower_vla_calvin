@@ -39,7 +39,7 @@ if [[ ! " ${VALID_BENCHMARKS[@]} " =~ " ${BENCHMARK} " ]]; then
 fi
 
 # Check if dataset exists
-LIBERO_DATASET_DIR="${SCRIPT_DIR}/LIBERO/LIBERO/${BENCHMARK}"
+LIBERO_DATASET_DIR="${SCRIPT_DIR}/LIBERO/libero/datasets/${BENCHMARK}"
 if [ ! -d "${LIBERO_DATASET_DIR}" ]; then
     echo "ERROR: LIBERO benchmark '${BENCHMARK}' not found!"
     echo "Expected location: ${LIBERO_DATASET_DIR}"
@@ -122,7 +122,7 @@ fi
 python ${SCRIPT_DIR}/flower/training.py \
     datamodule=libero \
     datamodule.datasets=[${BENCHMARK}] \
-    datamodule.root=${SCRIPT_DIR}/LIBERO \
+    datamodule.root=${SCRIPT_DIR}/LIBERO/libero/datasets \
     datamodule.batch_size=${BATCH_SIZE} \
     datamodule.num_workers=${NUM_WORKERS} \
     log_dir=${SCRIPT_DIR}/logs/libero_training_${BENCHMARK}_${TIMESTAMP} \
