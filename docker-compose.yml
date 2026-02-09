@@ -28,6 +28,7 @@ services:
       - ./flower:/workspace/flower_vla_calvin/flower
       - ./calvin_env:/workspace/flower_vla_calvin/calvin_env
       - ./configs:/workspace/flower_vla_calvin/configs
+      - ./scripts:/workspace/flower_vla_calvin/scripts
 
       # Mount data directories (create these locally if needed)
       - ./dataset:/workspace/flower_vla_calvin/dataset
