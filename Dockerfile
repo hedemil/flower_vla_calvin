@@ -153,6 +153,7 @@ WORKDIR /workspace/flower_vla_calvin
 ENV flower_calvin_ROOT=/workspace/flower_vla_calvin
 ENV PYTHONPATH=/workspace/flower_vla_calvin/LIBERO:${PYTHONPATH}
 ENV HF_HUB_ENABLE_HF_TRANSFER=1
+ENV HOME=/appuser
 
 # Verify LIBERO can be imported (from same working directory)
 RUN echo "Verifying LIBERO installation..." && \
