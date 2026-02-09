@@ -39,7 +39,8 @@ if [[ ! " ${VALID_BENCHMARKS[@]} " =~ " ${BENCHMARK} " ]]; then
 fi
 
 # Check if dataset exists
-LIBERO_DATASET_DIR="${SCRIPT_DIR}/LIBERO/libero/datasets/${BENCHMARK}"
+PROJECT_ROOT="$(dirname "${SCRIPT_DIR}")"
+LIBERO_DATASET_DIR="${PROJECT_ROOT}/LIBERO/libero/datasets/${BENCHMARK}"
 if [ ! -d "${LIBERO_DATASET_DIR}" ]; then
     echo "ERROR: LIBERO benchmark '${BENCHMARK}' not found!"
     echo "Expected location: ${LIBERO_DATASET_DIR}"
@@ -119,13 +120,13 @@ fi
 # FSDP strategy shards model/optimizer across GPUs to reduce per-GPU memory
 # EMA delayed to avoid 4GB extra memory during early training
 # Checkpoints auto-saved by Lightning: last.ckpt + best based on val loss
-python ${SCRIPT_DIR}/flower/training.py \
+python ${PROJECT_ROOT}/flower/training.py \
     datamodule=libero \
     datamodule.datasets=[${BENCHMARK}] \
-    datamodule.root=${SCRIPT_DIR}/LIBERO/libero/datasets \
+    datamodule.root=${PROJECT_ROOT}/LIBERO/libero/datasets \
     datamodule.batch_size=${BATCH_SIZE} \
     datamodule.num_workers=${NUM_WORKERS} \
-    log_dir=${SCRIPT_DIR}/logs/libero_training_${BENCHMARK}_${TIMESTAMP} \
+    log_dir=${PROJECT_ROOT}/logs/libero_training_${BENCHMARK}_${TIMESTAMP} \
     max_epochs=${MAX_EPOCHS} \
     devices=2 \
     logger.entity=VLA-Thesis \
@@ -145,12 +146,12 @@ echo ""
 echo "=========================================="
 echo "Training completed!"
 echo "=========================================="
-echo "Logs: ${SCRIPT_DIR}/logs/libero_training_${BENCHMARK}_${TIMESTAMP}"
-echo "Checkpoints: ${SCRIPT_DIR}/logs/libero_training_${BENCHMARK}_${TIMESTAMP}/checkpoints/"
+echo "Logs: ${PROJECT_ROOT}/logs/libero_training_${BENCHMARK}_${TIMESTAMP}"
+echo "Checkpoints: ${PROJECT_ROOT}/logs/libero_training_${BENCHMARK}_${TIMESTAMP}/checkpoints/"
 echo "  - last.ckpt (most recent)"
 echo "  - epoch=X-step=Y.ckpt (top 3 best by val/loss)"
 echo ""
 echo "To backup checkpoints:"
 echo "  mkdir -p ~/backups/libero_${BENCHMARK}_${TIMESTAMP}"
-echo "  cp -r ${SCRIPT_DIR}/logs/libero_training_${BENCHMARK}_${TIMESTAMP}/checkpoints ~/backups/libero_${BENCHMARK}_${TIMESTAMP}/"
+echo "  cp -r ${PROJECT_ROOT}/logs/libero_training_${BENCHMARK}_${TIMESTAMP}/checkpoints ~/backups/libero_${BENCHMARK}_${TIMESTAMP}/"
 echo ""
