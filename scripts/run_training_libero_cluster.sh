@@ -51,6 +51,11 @@ if [ ! -d "${LIBERO_DATASET_DIR}" ]; then
     exit 1
 fi
 
+echo "SCRIPT_DIR: ${SCRIPT_DIR}"
+echo "PROJECT_ROOT: ${PROJECT_ROOT}"
+echo "LIBERO_DATASET_DIR: ${LIBERO_DATASET_DIR}"
+echo "PWD: $(pwd)"
+
 # Verify GPUs
 echo ""
 echo "Detected GPUs:"
