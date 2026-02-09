@@ -13,7 +13,7 @@ services:
           devices:
             - driver: nvidia
               count: all
-              capabilities: [gpu]
+              capabilities: [ gpu ]
 
     # Environment variables
     environment:
@@ -41,7 +41,7 @@ services:
       - ./QUICKSTART.md:/workspace/flower_vla_calvin/QUICKSTART.md
 
       # Optional: mount for wandb cache
-      - ~/.cache/wandb:/root/.cache/wandb
+      - ~/.cache/wandb:/appuser/.cache/wandb
 
     # Keep container running
     stdin_open: true

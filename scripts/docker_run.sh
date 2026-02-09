@@ -34,8 +34,8 @@ docker run -it --rm \
     -v $(pwd)/scripts/run_evaluation.sh:/workspace/flower_vla_calvin/run_evaluation.sh \
     -v $(pwd)/scripts/run_libero_evaluation.sh:/workspace/flower_vla_calvin/run_libero_evaluation.sh \
     -v $(pwd)/scripts/run_training_cluster.sh:/workspace/flower_vla_calvin/run_training_cluster.sh \
-    -v ~/.cache/huggingface:/root/.cache/huggingface \
-    -v ~/.cache/wandb:/root/.cache/wandb \
+    -v ~/.cache/huggingface:/appuser/.cache/huggingface \
+    -v ~/.cache/wandb:/appuser/.cache/wandb \
     -w /workspace/flower_vla_calvin \
     flower_vla_calvin:latest \
     /bin/bash
