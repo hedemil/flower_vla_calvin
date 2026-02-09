@@ -120,7 +120,7 @@ fi
 # FSDP strategy shards model/optimizer across GPUs to reduce per-GPU memory
 # EMA delayed to avoid 4GB extra memory during early training
 # Checkpoints auto-saved by Lightning: last.ckpt + best based on val loss
-python ${PROJECT_ROOT}/flower/training.py \
+python ${SCRIPT_DIR}/flower/training.py \
     datamodule=libero \
     datamodule.datasets=[${BENCHMARK}] \
     datamodule.root=${PROJECT_ROOT}/LIBERO/libero/datasets \
