@@ -146,7 +146,7 @@ python ${PROJECT_ROOT}/flower/training_libero.py \
     callbacks.checkpoint.monitor=val/loss \
     callbacks.checkpoint.mode=min \
     callbacks.checkpoint.save_last=True \
-    callbacks.rollout_lh.n_eval=10 \
+    callbacks.rollout_lh.n_eval=5 \
     ${CKPT_ARG}
 
 # One-line example command to run (adjust parameters as needed):
