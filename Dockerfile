@@ -92,12 +92,12 @@ RUN pip install -e .
 # ===============================
 # Create LIBERO config file first
 # ===============================
-RUN mkdir -p /root/.libero && \
-    echo "benchmark_root: /workspace/flower_vla_calvin/LIBERO/libero/libero" > /root/.libero/config.yaml && \
-    echo "bddl_files: /workspace/flower_vla_calvin/LIBERO/libero/libero/bddl_files" >> /root/.libero/config.yaml && \
-    echo "init_states: /workspace/flower_vla_calvin/LIBERO/libero/libero/init_files" >> /root/.libero/config.yaml && \
-    echo "datasets: /workspace/flower_vla_calvin/LIBERO/libero/datasets" >> /root/.libero/config.yaml && \
-    echo "assets: /workspace/flower_vla_calvin/LIBERO/libero/libero/assets" >> /root/.libero/config.yaml && \
+RUN mkdir -p /appuser/.libero && \
+    echo "benchmark_root: /workspace/flower_vla_calvin/LIBERO/libero/libero" > /appuser/.libero/config.yaml && \
+    echo "bddl_files: /workspace/flower_vla_calvin/LIBERO/libero/libero/bddl_files" >> /appuser/.libero/config.yaml && \
+    echo "init_states: /workspace/flower_vla_calvin/LIBERO/libero/libero/init_files" >> /appuser/.libero/config.yaml && \
+    echo "datasets: /workspace/flower_vla_calvin/LIBERO/libero/datasets" >> /appuser/.libero/config.yaml && \
+    echo "assets: /workspace/flower_vla_calvin/LIBERO/libero/libero/assets" >> /appuser/.libero/config.yaml && \
     echo "✓ LIBERO config created"
 
 # ===============================
@@ -153,6 +153,7 @@ WORKDIR /workspace/flower_vla_calvin
 ENV flower_calvin_ROOT=/workspace/flower_vla_calvin
 ENV PYTHONPATH=/workspace/flower_vla_calvin/LIBERO:${PYTHONPATH}
 ENV HF_HUB_ENABLE_HF_TRANSFER=1
+ENV HOME=/appuser
 
 # Verify LIBERO can be imported (from same working directory)
 RUN echo "Verifying LIBERO installation..." && \

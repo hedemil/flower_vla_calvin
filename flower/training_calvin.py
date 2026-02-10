@@ -94,7 +94,7 @@ def train(cfg: DictConfig) -> None:
             "logger": train_logger,
             "callbacks": callbacks,
             "benchmark": False,
-            "strategy": "ddp_find_unused_parameters_true",
+            # strategy is inherited from cfg.trainer
             "accelerator": "gpu",
             "devices": cfg.trainer.devices,
             "use_distributed_sampler": True,

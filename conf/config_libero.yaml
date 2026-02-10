@@ -5,15 +5,15 @@ defaults:
   - override hydra/job_logging: colorlog
   - override hydra/hydra_logging: colorlog
 
-root_data_dir: /home/yagmurlu/code/MoDE_Calvin/dataset/task_ABC_D
-lang_folder: lang_clip_resnet50
+root_data_dir: /workspace/flower_vla_calvin/LIBERO/libero/datasets/libero_spatial
+lang_folder: lang_annotations
 
 log_dir: ./logs
 slurm: false
 seed: 42
 device: 'cuda'
-batch_size: 8
-devices: 4
+batch_size: 4 # 8 per GPU
+devices: 2 # 4 numbers of GPUs
 goal_window_size: 1
 act_dim: 7
 proprio_dims: 9
@@ -36,7 +36,8 @@ trainer:
   max_epochs: ${max_epochs}
   sync_batchnorm: True
   accelerator: gpu
-  strategy: "ddp" 
+  strategy: "ddp_find_unused_parameters_true"
+  accumulate_grad_batches: 4  # Simulates effective batch_size=32 
   limit_train_batches: 1000
   limit_val_batches: 4
 
@@ -47,8 +48,8 @@ logger:
   group: mode
   log_model: false
   project: ${libero_benchmark}
-  entity: bennoq
-  id: ???
+  entity: VLA-Thesis
+  id: null
 
 
 hydra:

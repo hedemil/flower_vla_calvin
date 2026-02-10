@@ -13,7 +13,7 @@ services:
           devices:
             - driver: nvidia
               count: all
-              capabilities: [gpu]
+              capabilities: [ gpu ]
 
     # Environment variables
     environment:
@@ -28,6 +28,7 @@ services:
       - ./flower:/workspace/flower_vla_calvin/flower
       - ./calvin_env:/workspace/flower_vla_calvin/calvin_env
       - ./configs:/workspace/flower_vla_calvin/configs
+      - ./scripts:/workspace/flower_vla_calvin/scripts
 
       # Mount data directories (create these locally if needed)
       - ./dataset:/workspace/flower_vla_calvin/dataset
@@ -41,7 +42,7 @@ services:
       - ./QUICKSTART.md:/workspace/flower_vla_calvin/QUICKSTART.md
 
       # Optional: mount for wandb cache
-      - ~/.cache/wandb:/root/.cache/wandb
+      - ~/.cache/wandb:/appuser/.cache/wandb
 
     # Keep container running
     stdin_open: true
