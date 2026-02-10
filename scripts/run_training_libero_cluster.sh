@@ -128,10 +128,10 @@ fi
 # Checkpoints auto-saved by Lightning: last.ckpt + best based on val loss
 python ${PROJECT_ROOT}/flower/training_libero.py \
     datamodule=libero \
-    datamodule.datasets=[${BENCHMARK}] \
-    datamodule.root=${PROJECT_ROOT}/LIBERO/libero/datasets \
-    datamodule.batch_size=${BATCH_SIZE} \
-    datamodule.num_workers=${NUM_WORKERS} \
+    libero_benchmark=${BENCHMARK} \
+    root_data_dir=${PROJECT_ROOT}/LIBERO/libero/datasets/${BENCHMARK} \
+    batch_size=${BATCH_SIZE} \
+    num_workers=${NUM_WORKERS} \
     log_dir=${PROJECT_ROOT}/logs/libero_training_${BENCHMARK}_${TIMESTAMP} \
     max_epochs=${MAX_EPOCHS} \
     devices=2 \
@@ -139,14 +139,17 @@ python ${PROJECT_ROOT}/flower/training_libero.py \
     logger.project=libero_a6000 \
     logger.group=${BENCHMARK} \
     logger.name=${BENCHMARK}_2gpu_${TIMESTAMP} \
-    model.freeze_florence=False \
-    model.freeze_vision_tower=False \
+    model.freeze_florence=True \
+    model.freeze_vision_tower=True \
     callbacks.ema.start_step=5000 \
     callbacks.checkpoint.save_top_k=3 \
     callbacks.checkpoint.monitor=val/loss \
     callbacks.checkpoint.mode=min \
     callbacks.checkpoint.save_last=True \
     ${CKPT_ARG}
+
+# One-line example command to run (adjust parameters as needed):
+# python /workspace/flower_vla_calvin/flower/training_libero.py datamodule=libero libero_benchmark=libero_spatial root_data_dir=/workspace/flower_vla_calvin/LIBERO/libero/datasets/libero_spatial batch_size=4 num_workers=8 log_dir=/workspace/flower_vla_calvin/logs/libero_training_test max_epochs=50 devices=2 logger.entity=VLA-Thesis logger.project=libero_a6000 logger.group=libero_spatial logger.name=test_run model.freeze_florence=True model.freeze_vision_tower=True
 
 echo ""
 echo "=========================================="

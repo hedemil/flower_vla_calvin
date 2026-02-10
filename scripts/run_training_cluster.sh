@@ -152,6 +152,8 @@ python ${SCRIPT_DIR}/flower/training_calvin.py \
     callbacks.checkpoint.mode=min \
     callbacks.checkpoint.save_last=True
 
+# One-line example command to run (adjust parameters as needed):
+# python flower/training_calvin.py batch_size=2 max_epochs=2 trainer.limit_train_batches=10 rollout_lh_skip_epochs=100 callbacks.ema.start_step=100000
 
 echo ""
 echo "=========================================="
