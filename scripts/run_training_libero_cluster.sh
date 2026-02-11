@@ -148,7 +148,7 @@ python ${PROJECT_ROOT}/flower/training_libero.py \
     model.freeze_vision_tower=True \
     callbacks.ema.start_step=5000 \
     callbacks.checkpoint.save_top_k=3 \
-    callbacks.checkpoint.monitor=val/loss \
+    callbacks.checkpoint.monitor=val_act/action_loss \
     callbacks.checkpoint.mode=min \
     callbacks.rollout_lh.n_eval=2 \
     callbacks.rollout_lh.max_steps=300 \

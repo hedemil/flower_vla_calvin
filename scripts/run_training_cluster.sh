@@ -148,7 +148,7 @@ python ${SCRIPT_DIR}/flower/training_calvin.py \
     rollout_lh_skip_epochs=${ROLLOUT_SKIP} \
     callbacks.ema.start_step=5000 \
     callbacks.checkpoint.save_top_k=3 \
-    callbacks.checkpoint.monitor=val/loss \
+    callbacks.checkpoint.monitor=val_act/action_loss \
     callbacks.checkpoint.mode=min \
     callbacks.checkpoint.save_last=True
 
