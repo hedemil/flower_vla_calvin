@@ -108,23 +108,28 @@ echo "  Num workers: ${NUM_WORKERS}"
 echo "  Multi-GPU: FSDP strategy (memory optimized)"
 echo "  EMA: Delayed start (step 5000)"
 echo "  Checkpoints: Saved to logs/libero_training_${BENCHMARK}_${TIMESTAMP}/checkpoints"
+echo "  Loading pretrained weights: ${PROJECT_ROOT}/checkpoints/pretrained/360000_model_weights.pt"
+echo "  Evaluation: 2 episodes per task, max 300 steps (reduced to avoid timeout)"
 if [ -n "${CHECKPOINT}" ]; then
-    echo "  Fine-tuning from: ${CHECKPOINT}"
+    echo "  Custom checkpoint override: ${CHECKPOINT}"
 fi
 echo ""
 
 # Set CUDA memory allocator config for better memory management
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-# Build checkpoint argument if provided
-CKPT_ARG=""
+# Build checkpoint argument - default to pretrained if not provided
 if [ -n "${CHECKPOINT}" ]; then
-    CKPT_ARG="checkpoint=${CHECKPOINT}"
+    CKPT_ARG="model.load_pretrained=True model.pretrained_model_path=${CHECKPOINT}"
+else
+    # Use base pretrained checkpoint by default
+    CKPT_ARG="model.load_pretrained=True model.pretrained_model_path=${PROJECT_ROOT}/checkpoints/pretrained/360000_model_weights.pt"
 fi
 
-# Run training with memory-optimized settings
+# Run training with pretrained weights
 # FSDP strategy shards model/optimizer across GPUs to reduce per-GPU memory
 # EMA delayed to avoid 4GB extra memory during early training
+# Evaluation: Reduced n_eval and max_steps to prevent NCCL timeout
 # Checkpoints auto-saved by Lightning: last.ckpt + best based on val loss
 python ${PROJECT_ROOT}/flower/training_libero.py \
     datamodule=libero \
@@ -145,7 +150,9 @@ python ${PROJECT_ROOT}/flower/training_libero.py \
     callbacks.checkpoint.save_top_k=3 \
     callbacks.checkpoint.monitor=val/loss \
     callbacks.checkpoint.mode=min \
-    callbacks.rollout_lh.n_eval=5 \
+    callbacks.rollout_lh.n_eval=2 \
+    callbacks.rollout_lh.max_steps=300 \
+    callbacks.rollout_lh.rollout_freq=10 \
     ${CKPT_ARG}
 
 # One-line example command to run (adjust parameters as needed):
