@@ -98,8 +98,17 @@ for arg in "$@"; do
     fi
 done
 
+# Parse model config from arguments (default: flower, use meanflower for Mean Flow)
+MODEL_CONFIG="flower"
+for arg in "$@"; do
+    if [[ $arg == model=* ]]; then
+        MODEL_CONFIG="${arg#*=}"
+    fi
+done
+
 echo "Configuration:"
 echo "  Benchmark: ${BENCHMARK}"
+echo "  Model: ${MODEL_CONFIG}"
 echo "  Dataset path: ${LIBERO_DATASET_DIR}"
 echo "  GPUs: 2"
 echo "  Batch size: ${BATCH_SIZE} (effective batch: ${BATCH_SIZE}*2*4=32 with grad accum)"
@@ -127,6 +136,7 @@ fi
 # EMA delayed to avoid 4GB extra memory during early training
 # Checkpoints auto-saved by Lightning: last.ckpt + best based on val loss
 python ${PROJECT_ROOT}/flower/training_libero.py \
+    model=${MODEL_CONFIG} \
     datamodule=libero \
     libero_benchmark=${BENCHMARK} \
     root_data_dir=${PROJECT_ROOT}/LIBERO/libero/datasets/${BENCHMARK} \

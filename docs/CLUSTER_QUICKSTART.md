@@ -80,6 +80,13 @@ tmux new -s flower
 # With CALVIN ABCD dataset:
 ./run_training_cluster.sh dataset=ABCD
 
+# Train with Mean Flow model:
+
+./scripts/run_training_libero_cluster.sh benchmark=libero_goal model=meanflower
+# Fine-tune from a FLOWERVLA checkpoint (shared weights load, decoders init randomly):
+
+./scripts/run_training_libero_cluster.sh benchmark=libero_goal model=meanflower checkpoint=/path/to/flowervla.ckpt
+
 # Detach from tmux: Ctrl+B, then D
 ```
 

@@ -14,7 +14,7 @@ from pytorch_lightning.utilities import rank_zero_only
 
 # This is for using the locally installed repo clone when using slurm
 sys.path.insert(0, Path(__file__).absolute().parents[1].as_posix())
-import flower.models.flower as models_m
+import importlib
 from flower.utils.utils import get_git_commit_hash, get_last_checkpoint, initialize_pretrained_weights, print_system_env_info
 
 # Add local repo to path
@@ -74,8 +74,14 @@ def train(cfg: DictConfig) -> None:
         # Initialize components
         log_rank_0(f"\nInitializing training for seed {cfg.seed}")
         datamodule = hydra.utils.instantiate(cfg.datamodule)
+        # Dynamically import the model module based on config target
+        model_target = cfg.model["_target_"]
+        model_module_path = ".".join(model_target.split(".")[:-1])
+        model_class_name = model_target.split(".")[-1]
+        models_m = importlib.import_module(model_module_path)
+
         model = hydra.utils.instantiate(cfg.model) if get_last_checkpoint(Path.cwd()) is None else \
-               getattr(models_m, cfg.model["_target_"].split(".")[-1]).load_from_checkpoint(get_last_checkpoint(Path.cwd()).as_posix())
+               getattr(models_m, model_class_name).load_from_checkpoint(get_last_checkpoint(Path.cwd()).as_posix())
         
         if "pretrain_chk" in cfg:
             initialize_pretrained_weights(model, cfg)

@@ -11,9 +11,15 @@ echo "=========================================="
 # Get the absolute path of the script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+echo "==========================================="
+echo "Script Directory: $SCRIPT_DIR"
+echo "==========================================="
+
 # Parse arguments
 BENCHMARK="${1:-libero_spatial}"
-CHECKPOINT_DIR="${2:-${SCRIPT_DIR}/checkpoints/${BENCHMARK}}"
+echo "Selected Benchmark: $BENCHMARK"
+CHECKPOINT_DIR="/workspace/flower_vla_calvin/checkpoints/${BENCHMARK}"
+echo "Checkpoint Directory: $CHECKPOINT_DIR"
 
 # Validate benchmark
 VALID_BENCHMARKS=("libero_spatial" "libero_object" "libero_goal" "libero_10" "libero_90")
@@ -33,7 +39,7 @@ if [ ! -d "$CHECKPOINT_DIR" ] || [ ! "$(ls -A $CHECKPOINT_DIR)" ]; then
 fi
 
 # Check if LIBERO dataset exists
-LIBERO_DATASET_DIR="${SCRIPT_DIR}/LIBERO/libero/datasets/${BENCHMARK}"
+LIBERO_DATASET_DIR="/workspace/flower_vla_calvin/LIBERO/libero/datasets/${BENCHMARK}"
 if [ ! -d "$LIBERO_DATASET_DIR" ] || [ ! "$(ls -A $LIBERO_DATASET_DIR)" ]; then
     echo "ERROR: LIBERO dataset not found at: $LIBERO_DATASET_DIR"
     echo ""
