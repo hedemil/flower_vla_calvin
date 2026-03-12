@@ -85,7 +85,19 @@ tmux new -s flower
 ./scripts/run_training_libero_cluster.sh benchmark=libero_goal model=meanflower
 # Fine-tune from a FLOWERVLA checkpoint (shared weights load, decoders init randomly):
 
-./scripts/run_training_libero_cluster.sh benchmark=libero_goal model=meanflower checkpoint=checkpoints/pretrained/360000_model_weights.pt
+# Decoupled MeanFlow from pretrained checkpoint
+./scripts/run_training_libero_cluster.sh \
+    libero_benchmark=libero_spatial \
+    model=decoupled_meanflower \
+    model.load_pretrained=True \
+    model.pretrained_model_path=checkpoints/pretrained/360000_model_weights.pt
+
+# Or with extra overrides
+./scripts/run_training_libero_cluster.sh \
+    libero_benchmark=libero_goal \
+    model=meanflower \
+    batch_size=8 \
+    max_epochs=30
 
 # Detach from tmux: Ctrl+B, then D
 ```
