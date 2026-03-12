@@ -81,6 +81,10 @@ class MeanFlowerVLA(pl.LightningModule):
         optimizer_type: str = "adamw",
         optimizer: DictConfig = None,
         lr_scheduler: DictConfig = None,
+        # Decoupled MeanFlow Configuration
+        encoder_depth: int = 0,           # 0 = standard MeanFlow, >0 = first N blocks use t, rest use r
+        use_combined_loss: bool = False,   # True = FM loss + MF loss per batch
+        freeze_encoder_blocks: bool = False,  # True = freeze first encoder_depth blocks
         # Pretrained weights
         load_pretrained: bool = False,
         pretrained_model_path: str = None,
@@ -151,6 +155,18 @@ class MeanFlowerVLA(pl.LightningModule):
         self.ratio = ratio
         self.register_buffer("P_mean", torch.tensor(P_mean, dtype=torch.float32))
         self.register_buffer("P_std", torch.tensor(P_std, dtype=torch.float32))
+
+        # Decoupled MeanFlow config
+        self.encoder_depth = encoder_depth
+        self.use_combined_loss = use_combined_loss
+        self.freeze_encoder_blocks = freeze_encoder_blocks
+
+        # Freeze encoder blocks if requested
+        if self.freeze_encoder_blocks and self.encoder_depth > 0:
+            for i, block in enumerate(self.dit[:self.encoder_depth]):
+                for param in block.parameters():
+                    param.requires_grad = False
+            logger.info(f"Froze first {self.encoder_depth} DiT blocks (encoder)")
 
         # State tracking
         self.rollout_step_counter = 0
@@ -449,9 +465,17 @@ class MeanFlowerVLA(pl.LightningModule):
         for modality_scope, dataset_batch in batch.items():
             self.modality_scope = modality_scope
             obs_features = self.encode_observations(dataset_batch)
-            action_loss, losses_dict = self.meanflow_loss(
-                obs_features, dataset_batch["actions"]
-            )
+
+            if self.use_combined_loss:
+                fm_loss, fm_dict = self.rf_loss(obs_features, dataset_batch["actions"])
+                mf_loss, mf_dict = self.meanflow_loss(obs_features, dataset_batch["actions"])
+                action_loss = fm_loss + mf_loss
+                losses_dict = {**fm_dict, **mf_dict}
+            else:
+                action_loss, losses_dict = self.meanflow_loss(
+                    obs_features, dataset_batch["actions"]
+                )
+
             total_loss = total_loss + action_loss
             total_bs += len(dataset_batch["actions"])
 
@@ -686,10 +710,9 @@ class MeanFlowerVLA(pl.LightningModule):
 
         # Define network function for JVP
         def u_func(z_input, t_input, r_input):
-            h_input = t_input - r_input
             t_flat = t_input.detach().view(-1)
-            h_flat = h_input.detach().view(-1)
-            return self.dit_forward_meanflow(z_input, t_flat, h_flat, cond)
+            r_flat = r_input.detach().view(-1)
+            return self.dit_forward_meanflow(z_input, t_flat, r_flat, cond)
 
         # Tangent vectors for JVP
         dtdt = torch.ones_like(texp)
@@ -805,6 +828,55 @@ class MeanFlowerVLA(pl.LightningModule):
 
         return loss, losses_dict
 
+    def rf_loss(self, cond: dict, actions: torch.Tensor) -> Tuple[torch.Tensor, Dict[str, Any]]:
+        """
+        Standard rectified flow loss (velocity matching) for combined FM + MF training.
+        When r = t, h = 0, mean velocity becomes instantaneous velocity.
+        """
+        default_dtype = next(self.parameters()).dtype
+        action_type = cond['action_type']
+        if len(actions.shape) == 4:
+            actions = actions.squeeze(1)
+        b = actions.size(0)
+        device = actions.device
+        actions = actions.to(dtype=default_dtype)
+
+        # Sample t from logit-normal (same distribution as MF)
+        t = torch.sigmoid(torch.randn((b,), device=device)).clamp(min=0.001, max=0.999)
+        texp = t.view([b] + [1] * (actions.dim() - 1)).to(dtype=default_dtype)
+
+        # Sample noise per action space
+        noise = torch.zeros_like(actions)
+        for action_name, action_idx in self.action_space_index.action_spaces.items():
+            mask = (action_type == action_idx)
+            if mask.any():
+                adim = self.action_space_index.get_action_dim(action_idx)
+                noise_slice = torch.randn(
+                    (mask.sum(), actions.size(1), adim),
+                    dtype=actions.dtype, device=device
+                )
+                noise[mask, :, :adim] = noise_slice
+
+        z = (1 - texp) * actions + texp * noise
+
+        # Forward with r=t (instantaneous velocity, h=0)
+        v_pred = self.dit_forward_meanflow(z, t, r=t, cond_dict=cond)
+        v_target = noise - actions
+
+        # Build valid mask
+        valid_mask = torch.zeros_like(actions, dtype=torch.bool)
+        for action_name, action_idx in self.action_space_index.action_spaces.items():
+            mask = (action_type == action_idx)
+            if mask.any():
+                adim = self.action_space_index.get_action_dim(action_idx)
+                mask_expanded = mask.view(-1, 1, 1).expand(-1, actions.size(1), adim).to(device)
+                valid_mask[mask, :, :adim] = mask_expanded[mask]
+
+        diff = (v_pred - v_target) * valid_mask.to(dtype=default_dtype)
+        loss = (diff ** 2).mean()
+
+        return loss, {"rf_loss": loss.item()}
+
     # === Noise Distribution & Sampling for Mean Flow ===
 
     def noise_distribution(self):
@@ -866,28 +938,29 @@ class MeanFlowerVLA(pl.LightningModule):
 
     def _sample_with_fixed_steps(self, z: torch.Tensor, cond: Dict[str, torch.Tensor], inference: bool = False) -> torch.Tensor:
         """
-        Mean Flow single-step sampling: z_0 = z_1 - u(z_1, t=1, h=1)
+        Mean Flow single-step sampling: z_0 = z_1 - u(z_1, t=1, r=0)
+        (h = t - r = 1)
         """
         b = z.size(0)
         device = z.device
         dtype = next(self.parameters()).dtype
         z = z.to(dtype=dtype)
         t_tensor = torch.ones(b, device=device, dtype=dtype)
-        h_tensor = torch.ones(b, device=device, dtype=dtype)
-        u = self.dit_forward_meanflow(z, t_tensor, h_tensor, cond)
+        r_tensor = torch.zeros(b, device=device, dtype=dtype)
+        u = self.dit_forward_meanflow(z, t_tensor, r_tensor, cond)
         z = z - u
         return z.clamp(-1, 1)
 
     # === DiT Forward ===
 
-    def dit_forward_meanflow(self, z: torch.Tensor, t: torch.Tensor, h: torch.Tensor, cond_dict: dict) -> torch.Tensor:
+    def dit_forward_meanflow(self, z: torch.Tensor, t: torch.Tensor, r: torch.Tensor, cond_dict: dict) -> torch.Tensor:
         """
         Forward pass through the DiT blocks using MeanFlowDecoder.
 
         Args:
             z: Latent actions [B, T, action_dim]
             t: Current timestep [B]
-            h: Timestep difference (t - r) [B]
+            r: Target timestep [B] (h = t - r is computed internally)
             cond_dict: Conditioning dictionary
         """
         B, t_seq, d = z.shape
@@ -912,19 +985,42 @@ class MeanFlowerVLA(pl.LightningModule):
         t_emb = sum(map(stateless_norm, [self.t_embedder(t), freq_embeds, proprio_embeds]))
 
         if self.use_adaln_cond:
-            global_cond = cond[:, 0, :] if self.use_readout_token else cond.mean(dim=1)
-            global_cond += t_emb
+            vision_cond = cond[:, 0, :] if self.use_readout_token else cond.mean(dim=1)
+            global_cond_t = vision_cond + t_emb
         else:
-            global_cond = t_emb
+            global_cond_t = t_emb
 
         context = cond if self.use_cross_attn else None
 
-        global_adaln = self.adaln(global_cond) if not self.action_type_adaln else self.action_specific_adaln(global_cond, action_type)
+        if self.encoder_depth > 0:
+            # Decoupled MeanFlow: encoder blocks conditioned on t, decoder blocks on r
+            r_emb = sum(map(stateless_norm, [self.t_embedder(r), freq_embeds, proprio_embeds]))
+            if self.use_adaln_cond:
+                global_cond_r = vision_cond + r_emb
+            else:
+                global_cond_r = r_emb
 
-        for layer in self.dit:
-            z = layer(z, global_cond, context=context, custom_attn_mask=None,
-                    custom_cross_attn_mask=cond_dict['attention_mask'], is_causal=True, global_adaln=global_adaln)
+            global_adaln_t = self.adaln(global_cond_t) if not self.action_type_adaln else self.action_specific_adaln(global_cond_t, action_type)
+            global_adaln_r = self.adaln(global_cond_r) if not self.action_type_adaln else self.action_specific_adaln(global_cond_r, action_type)
 
+            # Encoder blocks (conditioned on t)
+            for layer in self.dit[:self.encoder_depth]:
+                z = layer(z, global_cond_t, context=context, custom_attn_mask=None,
+                        custom_cross_attn_mask=cond_dict['attention_mask'], is_causal=True, global_adaln=global_adaln_t)
+
+            # Decoder blocks (conditioned on r)
+            for layer in self.dit[self.encoder_depth:]:
+                z = layer(z, global_cond_r, context=context, custom_attn_mask=None,
+                        custom_cross_attn_mask=cond_dict['attention_mask'], is_causal=True, global_adaln=global_adaln_r)
+        else:
+            # Standard MeanFlow: all blocks conditioned on t
+            global_adaln = self.adaln(global_cond_t) if not self.action_type_adaln else self.action_specific_adaln(global_cond_t, action_type)
+
+            for layer in self.dit:
+                z = layer(z, global_cond_t, context=context, custom_attn_mask=None,
+                        custom_cross_attn_mask=cond_dict['attention_mask'], is_causal=True, global_adaln=global_adaln)
+
+        h = t - r  # Compute h for the MeanFlowDecoder
         return self.decode_actions_meanflow(z, h, action_type, valid_dims)
 
     def action_specific_adaln(self, global_cond: torch.Tensor, action_type: torch.Tensor) -> List[torch.Tensor]:
