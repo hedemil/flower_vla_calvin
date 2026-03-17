@@ -107,7 +107,10 @@ def train(cfg: DictConfig) -> None:
             "default_root_dir": work_dir,
             "sync_batchnorm": True,
         }
-        
+        # Log trainer configuration and model summary
+        log_rank_0(f"Trainer config for seed {cfg.seed}:\n{trainer_args}")
+        log_rank_0(f"Model summary for seed {cfg.seed}:\n{model}")
+
         # Log configuration
         log_rank_0(f"Training config for seed {cfg.seed}:\n{cfg}")
         log_rank_0(f"Git commit: {get_git_commit_hash(Path(hydra.utils.to_absolute_path(__file__)))}")

@@ -695,16 +695,23 @@ class MeanFlowerVLA(pl.LightningModule):
         return decoded
 
     def encode_proprio(self, proprio: torch.Tensor, action_type: torch.Tensor, output_shape) -> torch.Tensor:
-        """Encodes proprioceptive data based on action type."""
+        """
+        Encode proprioception based on action type.
+        """
         batch_size, _ = output_shape
+        default_dtype = next(self.parameters()).dtype
+        
         if not self.use_proprio:
-            return torch.zeros(batch_size, self.dit_dim, device=self.device, dtype=proprio.dtype)
-        encoded = torch.zeros(batch_size, self.dit_dim, device=self.device, dtype=proprio.dtype)
+            return torch.zeros(batch_size, self.dit_dim, device=self.device)
+        
+        encoded_proprio = torch.zeros(batch_size, self.dit_dim, device=self.device, dtype=default_dtype)
+        
         for action_name, action_idx in self.action_space_index.action_spaces.items():
             mask = (action_type == action_idx)
             if mask.any():
-                encoded[mask] = self.proprio_encoders[action_name](proprio[mask]).squeeze(1)
-        return encoded
+                encoded_proprio[mask] = self.proprio_encoders[action_name](proprio[mask]).squeeze(1)
+        
+        return encoded_proprio
 
    # === Loss Functions ===
     def meanflow_loss(self, cond: dict, actions: torch.Tensor, dataset_idx: Any = None) -> Tuple[torch.Tensor, Dict[str, Any]]:
@@ -1014,75 +1021,67 @@ class MeanFlowerVLA(pl.LightningModule):
 
     # === DiT Forward ===
 
-    def dit_forward_meanflow(self, z: torch.Tensor, t: torch.Tensor, r: torch.Tensor, cond_dict: dict) -> torch.Tensor:
+    def dit_forward_meanflow(self, z: torch.Tensor, t: torch.Tensor, h: torch.Tensor, cond_dict: dict) -> torch.Tensor:
         """
         Forward pass through the DiT blocks using MeanFlowDecoder.
 
         Args:
             z: Latent actions [B, T, action_dim]
             t: Current timestep [B]
-            r: Target timestep [B] (h = t - r is computed internally)
+            h: Timestep difference (t - r) [B]
             cond_dict: Conditioning dictionary
         """
+        default_dtype = next(self.parameters()).dtype
         B, t_seq, d = z.shape
-        working_dtype = z.dtype
-
-        cond = self.cond_linear(self.cond_norm(cond_dict['features'].to(working_dtype)))
-        freq_embeds = cond_dict['frequency_embeds'].squeeze(1).to(working_dtype)
+        
+        # Get conditioning information
+        cond = cond_dict['features'].to(default_dtype)
+        frequency_embeds = cond_dict['frequency_embeds'].squeeze(1).to(default_dtype)
         action_type = cond_dict['action_type'].to(self.device)
-        proprio = cond_dict.get('proprio', torch.zeros_like(freq_embeds)).to(working_dtype) if self.use_proprio else torch.zeros_like(freq_embeds)
-        proprio_embeds = self.encode_proprio(proprio, action_type, freq_embeds.shape).to(working_dtype)
-
+        
+        # Handle proprioception
+        if self.use_proprio and cond_dict['proprio'] is not None:
+            proprio = cond_dict['proprio'].to(default_dtype)
+            proprio_embeds = self.encode_proprio(proprio, action_type, frequency_embeds.shape)
+        else:
+            proprio_embeds = torch.zeros_like(frequency_embeds)
+        
+        # Encode actions
         z, valid_dims = self.encode_actions(z, action_type)
-        if not (self.use_rope or self.use_nope):
-            z += self.positional_encoding
-
-        # Apply CFG dropout on freq_embeds and proprio_embeds only
-        if self.training and self.cfg_dropout > 0:
-            drop_mask = (torch.rand(freq_embeds.size(0), device=freq_embeds.device) < self.cfg_dropout).to(dtype=working_dtype).unsqueeze(1)
-            freq_embeds = freq_embeds * (1 - drop_mask)
-            proprio_embeds = proprio_embeds * (1 - drop_mask)
-
-        t_emb = sum(map(stateless_norm, [self.t_embedder(t), freq_embeds, proprio_embeds]))
-
+        
+        # Add positional encoding if not using ROPE/NOPE
+        if not self.use_rope and not self.use_nope:
+            z = z + self.positional_encoding
+        
+        # Process embeddings
+        t_emb = stateless_norm(self.t_embedder(t)) + \
+                stateless_norm(frequency_embeds).squeeze(1) + \
+                stateless_norm(proprio_embeds).squeeze(1)
+        
+        cond = self.cond_linear(self.cond_norm(cond))
+        
+        # Set up conditioning
         if self.use_adaln_cond:
-            vision_cond = cond[:, 0, :] if self.use_readout_token else cond.mean(dim=1)
-            global_cond_t = vision_cond + t_emb
+            vlm_token = cond[:, 0, :] if self.use_readout_token else cond.mean(dim=1)
+            global_cond = vlm_token + t_emb
         else:
-            global_cond_t = t_emb
-
+            global_cond = t_emb
+        
+        # Setup context
+        cx = z
         context = cond if self.use_cross_attn else None
-
-        if self.encoder_depth > 0:
-            # Decoupled MeanFlow: encoder blocks conditioned on t, decoder blocks on r
-            r_emb = sum(map(stateless_norm, [self.t_embedder(r), freq_embeds, proprio_embeds]))
-            if self.use_adaln_cond:
-                global_cond_r = vision_cond + r_emb
-            else:
-                global_cond_r = r_emb
-
-            global_adaln_t = self.adaln(global_cond_t) if not self.action_type_adaln else self.action_specific_adaln(global_cond_t, action_type)
-            global_adaln_r = self.adaln(global_cond_r) if not self.action_type_adaln else self.action_specific_adaln(global_cond_r, action_type)
-
-            # Encoder blocks (conditioned on t)
-            for layer in self.dit[:self.encoder_depth]:
-                z = layer(z, global_cond_t, context=context, custom_attn_mask=None,
-                        custom_cross_attn_mask=cond_dict['attention_mask'], is_causal=True, global_adaln=global_adaln_t)
-
-            # Decoder blocks (conditioned on r)
-            for layer in self.dit[self.encoder_depth:]:
-                z = layer(z, global_cond_r, context=context, custom_attn_mask=None,
-                        custom_cross_attn_mask=cond_dict['attention_mask'], is_causal=True, global_adaln=global_adaln_r)
+        
+        # Get adaln signals
+        if not self.action_type_adaln:
+            global_adaln = self.adaln(global_cond)
         else:
-            # Standard MeanFlow: all blocks conditioned on t
-            global_adaln = self.adaln(global_cond_t) if not self.action_type_adaln else self.action_specific_adaln(global_cond_t, action_type)
+            global_adaln = self.action_specific_adaln(global_cond, action_type)
+        
+        for layer in self.dit:
+            cx = layer(cx, global_cond, context=context, is_causal=True, global_adaln=global_adaln)
 
-            for layer in self.dit:
-                z = layer(z, global_cond_t, context=context, custom_attn_mask=None,
-                        custom_cross_attn_mask=cond_dict['attention_mask'], is_causal=True, global_adaln=global_adaln)
-
-        h = t - r  # Compute h for the MeanFlowDecoder
-        return self.decode_actions_meanflow(z, h, action_type, valid_dims)
+        # Decode actions with h-conditioned MeanFlowDecoder
+        return self.decode_actions_meanflow(cx, h, action_type, valid_dims)
     
     def dit_forward(self, z: torch.Tensor, t: torch.Tensor, cond_dict: dict) -> torch.Tensor:
         """

@@ -19,10 +19,7 @@
 #
 #   # Override batch size, epochs, etc.
 #   ./scripts/run_training_libero_cluster.sh \
-#       libero_benchmark=libero_goal \
 #       model=meanflower \
-#       batch_size=8 \
-#       max_epochs=30
 
 set -e
 
