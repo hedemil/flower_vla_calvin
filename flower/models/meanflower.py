@@ -244,66 +244,99 @@ class MeanFlowerVLA(pl.LightningModule):
         self.vlm_token_dropout = nn.Dropout(self.token_dropout)
 
     def _setup_dit_components_meanflow(
-        self, dit_dim, n_heads, n_layers, action_dim, act_window_size, hidden_dim,
-        attn_pdrop, resid_pdrop, mlp_pdrop, use_cross_attn,
-        use_rope, use_nope, query_seq_len, rope_theta
-    ):
+        self,
+        dit_dim: int,
+        n_heads: int,
+        n_layers: int,
+        action_dim: int,
+        act_window_size: int,
+        hidden_dim: int,
+        attn_pdrop: float,
+        resid_pdrop: float,
+        mlp_pdrop: float,
+        use_cross_attn: bool,
+        use_rope: bool,
+        use_nope: bool,
+        query_seq_len: int,
+        rope_theta: float
+    ) -> None:
         """
-        Sets up DiT components for Mean Flow. Uses MeanFlowDecoder (h-conditioned)
-        instead of nn.Linear for action decoders.
+        Sets up DiT components for Mean Flow. Identical to _setup_dit_components
+        except action_decoders use MeanFlowDecoder (h-conditioned) instead of nn.Linear.
         """
+        # Initialize module dictionaries
         self.action_encoders = nn.ModuleDict()
         self.action_decoders = nn.ModuleDict()
         if self.use_proprio:
             self.proprio_encoders = nn.ModuleDict()
         self.adaln = nn.ModuleDict() if self.action_type_adaln else None
 
+        # Set up action-specific components
         for action_name, action_idx in self.action_space_index.action_spaces.items():
             input_dim = self.action_space_index.get_action_dim(action_idx)
 
+            # Action encoder (same as rectified flow)
             self.action_encoders[action_name] = Mlp(
                 in_features=input_dim,
                 hidden_features=dit_dim,
                 out_features=dit_dim,
                 bias=True
             )
+            # MeanFlowDecoder replaces nn.Linear
             self.action_decoders[action_name] = MeanFlowDecoder(
                 dit_dim=dit_dim,
                 action_dim=input_dim,
                 hidden_dim=dit_dim * 2
-            )
+            ).to(self.device)
 
+            # Action-specific AdaLN
             if self.action_type_adaln:
                 self.adaln[action_name] = SharedAdaLNController(
-                    dit_dim, global_conddim=dit_dim, use_cross_attn=use_cross_attn
+                    dit_dim,
+                    global_conddim=dit_dim,
+                    use_cross_attn=use_cross_attn
                 )
 
+            # Proprioceptive encoders
             if self.use_proprio:
                 if action_name == 'bimanual_nav':
                     self.proprio_encoders[action_name] = Mlp(
-                        input_dim, dit_dim, out_features=dit_dim, drop=0.2
-                    )
+                        input_dim,
+                        dit_dim,
+                        out_features=dit_dim,
+                        drop=0.2
+                    ).to(self.device)
                 else:
-                    self.proprio_encoders[action_name] = ZeroEncoder(self.dit_dim)
+                    self.proprio_encoders[action_name] = ZeroEncoder(
+                        self.dit_dim,
+                        device=self.device
+                    )
 
+        # Set up shared AdaLN if not using action-specific AdaLN
         if not self.action_type_adaln:
             self.adaln = SharedAdaLNController(
-                dit_dim, global_conddim=dit_dim, use_cross_attn=use_cross_attn
+                dit_dim,
+                global_conddim=dit_dim,
+                use_cross_attn=use_cross_attn
             )
 
+        # Set up shared conditioning components
         self.cond_linear = nn.Linear(hidden_dim, dit_dim, bias=False)
         self.t_embedder = TimestepEmbedder(dit_dim)
         self.cond_norm = RmsNorm(hidden_dim)
         self.frequency_embedder = FreqEmbedder(dit_dim)
         self.action_space_embedder = ActionSpaceEmbedderParameter(
-            dit_dim, max_actions=len(self.action_space_index.action_spaces)
+            dit_dim,
+            max_actions=len(self.action_space_index.action_spaces)
         )
 
+        # Set up positional encoding if neither RoPE nor NoPE is used
         if not use_rope and not use_nope:
             self.positional_encoding = nn.Parameter(
                 torch.randn(1, act_window_size, dit_dim) * 0.1
             )
 
+        # Set up DiT blocks
         self.dit = nn.ModuleList([
             FlowBlock(
                 dim=dit_dim,
@@ -458,30 +491,44 @@ class MeanFlowerVLA(pl.LightningModule):
         ]
 
     def training_step(self, batch: Dict[str, Dict], batch_idx: int) -> torch.Tensor:
-        """Lightning training step."""
+        """Lightning training step"""
+        # Get optimizer
+        opt = self.optimizers()
+        
+        # Compute loss
         total_loss = torch.tensor(0.0, device=self.device)
+        action_loss = torch.tensor(0.0, device=self.device) 
         total_bs = 0
 
         for modality_scope, dataset_batch in batch.items():
             self.modality_scope = modality_scope
             obs_features = self.encode_observations(dataset_batch)
-
-            if self.use_combined_loss:
-                fm_loss, fm_dict = self.rf_loss(obs_features, dataset_batch["actions"])
-                mf_loss, mf_dict = self.meanflow_loss(obs_features, dataset_batch["actions"])
-                action_loss = fm_loss + mf_loss
-                losses_dict = {**fm_dict, **mf_dict}
-            else:
-                action_loss, losses_dict = self.meanflow_loss(
-                    obs_features, dataset_batch["actions"]
-                )
-
-            total_loss = total_loss + action_loss
-            total_bs += len(dataset_batch["actions"])
+            act_loss, losses_dict = self.meanflow_loss(obs_features, dataset_batch["actions"])
+            action_loss = action_loss + act_loss
+            total_loss = total_loss + act_loss
+            total_bs = total_bs + len(dataset_batch["actions"])
 
         total_loss = total_loss / len(batch)
-        self._log_training_metrics(total_loss, total_loss, total_bs, losses_dict)
-        return total_loss
+
+        # Log metrics
+        self._log_training_metrics(total_loss, action_loss, total_bs)
+
+        # Optimization step
+        # opt.zero_grad()
+        # self.manual_backward(action_loss)
+        
+        # Clip gradients
+         #torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
+        
+        # Step optimizer
+         #opt.step()
+
+        # Update learning rate
+         #sch = self.lr_schedulers()
+         #if sch is not None:
+        #     sch.step()
+
+        return action_loss
 
     def validation_step(self, batch: Dict[str, Dict], batch_idx: int) -> Dict[str, torch.Tensor]:
         """Lightning validation step."""
@@ -507,82 +554,75 @@ class MeanFlowerVLA(pl.LightningModule):
     def on_validation_end(self):
         self.train()
 
-    # === Encoding Methods (adapted for LIBERO batch format) ===
-
-    def encode_observations(self, batch: Dict) -> Dict[str, torch.Tensor]:
-        """
-        Encode observations using Florence-2, adapted for LIBERO batch format.
-        Expects batch with keys: rgb_obs, lang_text, (optionally robot_obs).
-        """
+    def encode_observations(self, batch: Dict) -> torch.Tensor:
+        """Encode observations using Florence-2"""
         device = self.device
-        default_dtype = next(self.parameters()).dtype
-
+        default_type = next(self.parameters()).dtype
+        
+        
+        embed_tensor = torch.zeros(len(batch["rgb_obs"]['rgb_static']), 1, 1)
+        action_type_tensor = torch.ones(len(batch["rgb_obs"]['rgb_static']), self.act_window_size, 7)
         # Process primary image
-        image_tensor = batch["rgb_obs"]["rgb_static"]
+        image_tensor = batch["rgb_obs"]['rgb_static']
         B, T, C, H, W = image_tensor.shape
+        
+        # Extract visual features
         image_features = self.vlm._encode_image(
-            image_tensor.view(-1, C, H, W).to(device).to(default_dtype)
-        )
+            image_tensor.view(-1, C, H, W).to(device).to(default_type)
+        ).to(default_type)
         image_features = image_features.view(B, T * image_features.shape[1], -1)
-
+        
         # Process second view if enabled
-        if self.use_second_view and self.second_view_key in batch["rgb_obs"]:
-            image2_tensor = batch["rgb_obs"][self.second_view_key]
+        if self.use_second_view:
+            image2_tensor = batch["rgb_obs"]['rgb_gripper']
             image2_features = self.vlm._encode_image(
-                image2_tensor.view(-1, C, H, W).to(device).to(default_dtype)
-            )
+                image2_tensor.view(-1, C, H, W).to(device).to(default_type)
+            ).to(default_type)
             image2_features = image2_features.view(B, T * image2_features.shape[1], -1)
             image_features = torch.cat([image_features, image2_features], dim=1)
-
-        # Get text embeddings from raw strings
+        
+        # Get text embeddings
+        # Get text embeddings once to reuse
         constructed_prompts = self.construct_prompts(batch)
         text_embeds = self._get_text_embeddings(constructed_prompts, device)
-
-        # Prompt token
+        
+        # Add task prompt and aggregation tokens
         task_prompt = self.prompt_embeds.expand(B, -1, -1).to(image_features.device)
-
-        # Merge: [prompt, image, text]
+        
+        # Merge sequence
         merged_embeds = torch.cat([
-            task_prompt,
             image_features,
+            task_prompt,
             text_embeds.to(image_features.device)
         ], dim=1)
-
-        # Attention mask (all ones — padding is minimal with truncation)
-        attention_mask = torch.ones(merged_embeds.shape[:2], dtype=torch.bool, device=device)
-
-        # VLM encoder
+        
+        # Create attention mask
+        attention_mask = torch.ones(merged_embeds.shape[:2], device=merged_embeds.device)
+        
+        # Process through encoder
         features = self.vlm.get_encoder()(
             inputs_embeds=merged_embeds,
-            attention_mask=attention_mask,
+            attention_mask=attention_mask
         ).last_hidden_state
 
+        # Apply dropout 
         features = self.vlm_token_dropout(features)
 
-        # CFG dropout on text features during training
-        if self.cfg_dropout > 0 and self.training:
-            prompt_length = task_prompt.shape[1]
-            image_length = image_features.shape[1]
-            text_length = text_embeds.shape[1]
-            text_start = prompt_length + image_length
-            text_end = text_start + text_length
-            drop_mask = (torch.rand(B, device=device) < self.cfg_dropout).to(dtype=default_dtype).view(B, 1, 1)
-            features[:, text_start:text_end, :] = features[:, text_start:text_end, :] * (1 - drop_mask)
-
-        # For LIBERO: hardcode frequency=3 and action_type=1 (eef_delta)
-        freq_input = torch.full((B,), 3.0, device=device, dtype=default_dtype)
-        action_type = torch.ones(B, device=device, dtype=torch.long)  # eef_delta = 1
-
-        # Proprioception
+        # Prepare frequency and action space embeddings
+        frequency_embeds = self.frequency_embedder(
+            torch.ones_like(embed_tensor).to(device) * 3
+        )
+        
+        # Get proprioception if enabled
         proprio = None
-        if self.use_proprio and 'robot_obs' in batch:
-            proprio = batch['robot_obs'].to(device).to(default_dtype)
+        if self.use_proprio and 'proprio' in batch[self.obs_modalities]:
+            proprio = batch[self.obs_modalities]['proprio'].to(device).to(default_type)
 
         return {
             'features': features,
-            'frequency_embeds': self.frequency_embedder(freq_input),
-            'action_space_embeds': self.action_space_embedder(action_type),
-            'action_type': action_type,
+            'frequency_embeds': frequency_embeds,
+            'action_space_embeds': None,
+            'action_type': torch.ones_like(action_type_tensor), # actiont ype is always 1
             'proprio': proprio,
             'attention_mask': attention_mask,
         }
@@ -666,8 +706,7 @@ class MeanFlowerVLA(pl.LightningModule):
                 encoded[mask] = self.proprio_encoders[action_name](proprio[mask]).squeeze(1)
         return encoded
 
-    # === Mean Flow Loss ===
-
+   # === Loss Functions ===
     def meanflow_loss(self, cond: dict, actions: torch.Tensor, dataset_idx: Any = None) -> Tuple[torch.Tensor, Dict[str, Any]]:
         """
         Computes the Mean Flow loss using JVP (Jacobian Vector Product).
@@ -684,6 +723,7 @@ class MeanFlowerVLA(pl.LightningModule):
         # Sample t and r with constraint t >= r
         t, r = self.sample_tr(b)
 
+        # Interpolate: z_t = (1 - t) * x + t * e
         texp = t.view([b] + [1] * (actions.dim() - 1)).to(dtype=default_dtype)
         rexp = r.view([b] + [1] * (actions.dim() - 1)).to(dtype=default_dtype)
 
@@ -702,23 +742,22 @@ class MeanFlowerVLA(pl.LightningModule):
         z = (1 - texp) * actions + texp * e
         v = e - actions  # target velocity
 
-        # Cast to float32 for JVP — dual tensors must have matching dtype
-        z = z.float()
-        v = v.float()
-        texp = texp.float()
-        rexp = rexp.float()
-
-        # Define network function for JVP
+        # Define network function for JVP.
+        # t and h are NOT detached — the full du/dt includes ∂u/∂t (through
+        # t_embedder/adaLN) and ∂u/∂h (through MeanFlowDecoder's h_embedder).
         def u_func(z_input, t_input, r_input):
-            t_flat = t_input.detach().view(-1)
-            r_flat = r_input.detach().view(-1)
-            return self.dit_forward_meanflow(z_input, t_flat, r_flat, cond)
+            h_input = t_input - r_input
+            t_flat = t_input.view(-1)
+            h_flat = h_input.view(-1)
+            return self.dit_forward_meanflow(z_input, t_flat, h_flat, cond)
 
-        # Tangent vectors for JVP
+        # Tangent vectors: dz/dt = v, dt/dt = 1, dr/dt = 0
         dtdt = torch.ones_like(texp)
         drdt = torch.zeros_like(rexp)
 
-        # Monkey-patch nn.Linear and RmsNorm for JVP dtype safety
+        # Compute u and du/dt using JVP.
+        # Monkey-patch nn.Linear and RmsNorm to cast weights to input dtype
+        # so dual tensors with promoted tangents don't cause mixed-dtype crashes.
         _orig_linear_forward = nn.Linear.forward
         _orig_rmsnorm_forward = RmsNorm.forward
 
@@ -764,7 +803,11 @@ class MeanFlowerVLA(pl.LightningModule):
             loss_per_sample = (diff ** 2).sum(dim=(1, 2))
             raw_mse_per_sample = loss_per_sample.detach()
 
-            # Adaptive weighting for stability
+            # Adaptive weighting: normalizes loss to ~1.0 per sample.
+            # This is critical for MeanFlow stability — without it, the
+            # self-referential target u_tgt = v - h*du/dt creates a positive
+            # feedback loop where large du/dt → large loss → large gradients
+            # → even larger du/dt, causing divergence.
             norm_eps = 0.001
             norm_p = 0.75
             adp_wt = (loss_per_sample.detach() + norm_eps) ** norm_p
@@ -778,16 +821,23 @@ class MeanFlowerVLA(pl.LightningModule):
             valid_v = v[valid_mask]
             valid_utgt = u_tgt[valid_mask]
             v_loss = ((valid_u - valid_v) ** 2).mean()
+            # Raw MSE before adaptive normalization — the real convergence signal
             raw_mse = raw_mse_per_sample.mean()
+            # Track du/dt magnitude — if this vanishes, the model degenerates
+            # to standard flow and single-step sampling will fail.
             dudt_norm = dudt[valid_mask].norm(dim=0).mean()
+            # Prediction/target norms
             u_pred_norm = valid_u.norm(dim=0).mean()
             u_tgt_norm = valid_utgt.norm(dim=0).mean()
+            # Cosine similarity: u_pred vs u_tgt (training alignment)
             cos_u_utgt = F.cosine_similarity(
                 valid_u.unsqueeze(0), valid_utgt.unsqueeze(0), dim=-1
             ).mean()
+            # Cosine similarity: u_pred vs v (single-step convergence)
             cos_u_v = F.cosine_similarity(
                 valid_u.unsqueeze(0), valid_v.unsqueeze(0), dim=-1
             ).mean()
+            # Per-timestep-bucket v_loss (where does the model struggle?)
             t_flat = t.view(-1)
             low_mask = t_flat < 0.3
             mid_mask = (t_flat >= 0.3) & (t_flat < 0.7)
@@ -798,15 +848,21 @@ class MeanFlowerVLA(pl.LightningModule):
             vloss_t_mid = u_v_per_sample[mid_mask].mean() if mid_mask.any() else torch.tensor(0.0)
             vloss_t_high = u_v_per_sample[high_mask].mean() if high_mask.any() else torch.tensor(0.0)
 
+        # Check for NaN/Inf in outputs
         if torch.isnan(u_pred).any() or torch.isinf(u_pred).any():
-            logger.warning(f"NaN/Inf detected in u_pred!")
+            logger.warning(f"NaN/Inf detected in u_pred! "
+                           f"u_pred stats: min={u_pred.min().item():.4f}, max={u_pred.max().item():.4f}, "
+                           f"z stats: min={z.min().item():.4f}, max={z.max().item():.4f}, "
+                           f"h stats: min={h.min().item():.4f}, max={h.max().item():.4f}")
 
         if torch.isnan(loss).any() or torch.isinf(loss).any():
             logger.warning("NaN/Inf detected in loss! Clipping to prevent crash.")
             loss = torch.nan_to_num(loss, nan=1e6, posinf=1e6, neginf=1e6)
 
+        # Verify loss has gradient function
         if loss.grad_fn is None and loss.requires_grad:
-            logger.warning("Loss requires_grad=True but has no grad_fn!")
+            logger.warning("Loss requires_grad=True but has no grad_fn! "
+                           "This indicates a gradient tracking issue.")
         elif not loss.requires_grad:
             logger.error("Loss does not require gradients! Setting requires_grad=True")
             loss.requires_grad_(True)
@@ -826,59 +882,64 @@ class MeanFlowerVLA(pl.LightningModule):
             "h_mean": h.mean().item(),
         }
 
+        if hasattr(self, 'accelerator') and self.accelerator is not None and wandb.run is not None:
+            if self.accelerator.is_main_process:
+                wandb.log(losses_dict)
+
         return loss, losses_dict
 
-    def rf_loss(self, cond: dict, actions: torch.Tensor) -> Tuple[torch.Tensor, Dict[str, Any]]:
+    def rf_loss(self, cond, actions, dataset_idx=None):
         """
-        Standard rectified flow loss (velocity matching) for combined FM + MF training.
-        When r = t, h = 0, mean velocity becomes instantaneous velocity.
+        Compute the rectified flow loss.
         """
         default_dtype = next(self.parameters()).dtype
-        action_type = cond['action_type']
+        
         if len(actions.shape) == 4:
             actions = actions.squeeze(1)
         b = actions.size(0)
         device = actions.device
-        actions = actions.to(dtype=default_dtype)
+        actions = actions.to(default_dtype)
 
-        # Sample t from logit-normal (same distribution as MF)
-        t = torch.sigmoid(torch.randn((b,), device=device)).clamp(min=0.001, max=0.999)
-        texp = t.view([b] + [1] * (actions.dim() - 1)).to(dtype=default_dtype)
+        # Sample time based on sampling strategy
+        if self.sampling_type == "pi_zero":
+            alpha, beta = 1.5, 1.0
+            t = torch.distributions.Beta(alpha, beta).sample((b,)).to(device)
+            t = t.clamp(max=0.999)
+        elif self.sampling_type == "ln":
+            t = torch.sigmoid(torch.randn((b,), device=device))
+            t = t.clamp(max=0.999).to(default_dtype)
+        elif self.sampling_type == "uniform":
+            eps = 1e-5
+            t = (torch.rand(1, device=device) + torch.arange(b, device=device) / b) % (1 - eps)
+            t = t.to(default_dtype)
+        else:
+            raise NotImplementedError(f"Sampling type {self.sampling_type} not implemented")
 
-        # Sample noise per action space
-        noise = torch.zeros_like(actions)
-        for action_name, action_idx in self.action_space_index.action_spaces.items():
-            mask = (action_type == action_idx)
-            if mask.any():
-                adim = self.action_space_index.get_action_dim(action_idx)
-                noise_slice = torch.randn(
-                    (mask.sum(), actions.size(1), adim),
-                    dtype=actions.dtype, device=device
-                )
-                noise[mask, :, :adim] = noise_slice
+        # Interpolate between actions and noise
+        texp = t.view([b] + [1] * (actions.dim() - 1))
+        z1 = torch.randn_like(actions, device=device).to(default_dtype)
 
-        z = (1 - texp) * actions + texp * noise
+        # Interpolate
+        zt = (1 - texp) * actions + texp * z1
 
-        # Forward with r=t (instantaneous velocity, h=0)
-        v_pred = self.dit_forward_meanflow(z, t, r=t, cond_dict=cond)
-        v_target = noise - actions
+        # Forward pass
+        vtheta = self.dit_forward(zt, t, cond)
+        # Compute loss on valid dimensions only
+        diff = (z1 - actions) - vtheta
+        valid_diff = diff
+        loss = (valid_diff ** 2).mean()
 
-        # Build valid mask
-        valid_mask = torch.zeros_like(actions, dtype=torch.bool)
-        for action_name, action_idx in self.action_space_index.action_spaces.items():
-            mask = (action_type == action_idx)
-            if mask.any():
-                adim = self.action_space_index.get_action_dim(action_idx)
-                mask_expanded = mask.view(-1, 1, 1).expand(-1, actions.size(1), adim).to(device)
-                valid_mask[mask, :, :adim] = mask_expanded[mask]
+        # Collect debugging info
+        losses_dict = {
+            "diff_min": valid_diff.min().item(),
+            "diff_max": valid_diff.max().item(),
+            "diff_mean": valid_diff.mean().item(),
+            "loss": loss.item(),
+        }
 
-        diff = (v_pred - v_target) * valid_mask.to(dtype=default_dtype)
-        loss = (diff ** 2).mean()
-
-        return loss, {"rf_loss": loss.item()}
+        return loss, losses_dict
 
     # === Noise Distribution & Sampling for Mean Flow ===
-
     def noise_distribution(self):
         """Returns the noise distribution function based on config."""
         if self.noise_dist == 'logit_normal':
@@ -889,7 +950,7 @@ class MeanFlowerVLA(pl.LightningModule):
             raise ValueError(f"Unknown noise distribution: {self.noise_dist}")
 
     def _logit_normal_dist(self, bz: int) -> torch.Tensor:
-        """Sample from logit-normal distribution."""
+        """Sample from logit-normal distribution. Math in float32 for stability."""
         rnd_normal = torch.randn(
             bz, 1, 1, 1,
             device=self.P_mean.device,
@@ -911,16 +972,27 @@ class MeanFlowerVLA(pl.LightningModule):
     def sample_tr(self, b: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Sample timesteps t and r with constraint t >= r.
-        ratio fraction of samples keep r != t (integral/mean-flow samples).
+        `ratio` fraction of samples keep r != t (integral/mean-flow samples).
         The remaining (1 - ratio) fraction get r = t (instantaneous velocity).
+        Matches py-meanflow reference: ratio=0.75 → 75% integral, 25% velocity.
+
+        Returns:
+            t: Sampled timesteps [B, 1, 1, 1]
+            r: Sampled timesteps [B, 1, 1, 1]
         """
         dtype = next(self.parameters()).dtype
+
         t = self.noise_distribution()(b).to(device=self.device, dtype=dtype)
         r = self.noise_distribution()(b).to(device=self.device, dtype=dtype)
+
+        # Ensure t >= r element-wise
         t, r = torch.maximum(t, r), torch.minimum(t, r)
+
+        # With probability (1 - ratio), collapse to velocity (r = t)
         prob = torch.rand(b, 1, 1, 1, device=self.device)
         velocity_mask = prob < (1 - self.ratio)
         r = torch.where(velocity_mask, t, r)
+
         return t, r
 
     # === Sampling Methods ===
@@ -1022,6 +1094,70 @@ class MeanFlowerVLA(pl.LightningModule):
 
         h = t - r  # Compute h for the MeanFlowDecoder
         return self.decode_actions_meanflow(z, h, action_type, valid_dims)
+    
+    def dit_forward(self, z: torch.Tensor, t: torch.Tensor, cond_dict: dict) -> torch.Tensor:
+        """
+        Forward pass through the DiT blocks.
+        """
+        default_dtype = next(self.parameters()).dtype
+        B, t_seq, d = z.shape
+        
+        # Get conditioning information
+        cond = cond_dict['features'].to(default_dtype)
+        frequency_embeds = cond_dict['frequency_embeds'].squeeze(1).to(default_dtype)
+        action_type = cond_dict['action_type'].to(self.device)
+        
+        # Handle proprioception
+        if self.use_proprio and cond_dict['proprio'] is not None:
+            proprio = cond_dict['proprio'].to(default_dtype)
+            proprio_embeds = self.encode_proprio(proprio, action_type, frequency_embeds.shape)
+        else:
+            proprio_embeds = torch.zeros_like(frequency_embeds)
+        
+        # Encode actions
+        z, valid_dims = self.encode_actions(z, action_type)
+        
+        # Add positional encoding if not using ROPE/NOPE
+        if not self.use_rope and not self.use_nope:
+            z = z + self.positional_encoding
+        
+        # Process embeddings
+        t_emb = stateless_norm(self.t_embedder(t)) + \
+                stateless_norm(frequency_embeds).squeeze(1) + \
+                stateless_norm(proprio_embeds).squeeze(1)
+        
+        cond = self.cond_linear(self.cond_norm(cond))
+        
+        # Set up conditioning
+        if self.use_adaln_cond:
+            vlm_token = cond[:, 0, :] if self.use_readout_token else cond.mean(dim=1)
+            global_cond = vlm_token + t_emb
+        else:
+            global_cond = t_emb
+        
+        # Setup context
+        cx = z
+        context = cond if self.use_cross_attn else None
+        
+        # Get adaln signals
+        if not self.action_type_adaln:
+            global_adaln = self.adaln(global_cond)
+        else:
+            global_adaln = self.action_specific_adaln(global_cond, action_type)
+        
+
+        # Process through DiT blocks
+        for layer in self.dit:
+            cx = layer(
+                cx, 
+                global_cond, 
+                context=context, 
+                is_causal=True, 
+                global_adaln=global_adaln
+            )
+            
+        # Decode and return
+        return self.decode_actions(cx, action_type, valid_dims)
 
     def action_specific_adaln(self, global_cond: torch.Tensor, action_type: torch.Tensor) -> List[torch.Tensor]:
         """Computes action-specific AdaLN modulation signals."""
