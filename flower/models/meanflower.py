@@ -998,17 +998,6 @@ class MeanFlowerVLA(pl.LightningModule):
     # === Sampling Methods ===
 
     def sample_actions(self, z: torch.Tensor, cond: Dict[str, torch.Tensor], inference: bool = False) -> torch.Tensor:
-        """Samples actions from the DiT model using single-step mean flow."""
-        b = z.size(0)
-        action_type = cond['action_type']
-        for action_name, action_idx in self.action_space_index.action_spaces.items():
-            mask = (action_type == action_idx)
-            if mask.any():
-                adim = self.action_space_index.get_action_dim(action_idx)
-                z[mask, :, adim:] = 0.0
-        return self._sample_with_fixed_steps(z, cond, inference)
-
-    def _sample_with_fixed_steps(self, z: torch.Tensor, cond: Dict[str, torch.Tensor], inference: bool = False) -> torch.Tensor:
         """
         Mean Flow single-step sampling: z_0 = z_1 - u(z_1, t=1, r=0)
         (h = t - r = 1)
@@ -1021,7 +1010,7 @@ class MeanFlowerVLA(pl.LightningModule):
         r_tensor = torch.zeros(b, device=device, dtype=dtype)
         u = self.dit_forward_meanflow(z, t_tensor, r_tensor, cond)
         z = z - u
-        return z.clamp(-1, 1)
+        return z.clamp(-1, 1)  
 
     # === DiT Forward ===
 
