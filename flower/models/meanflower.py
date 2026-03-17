@@ -668,7 +668,7 @@ class MeanFlowerVLA(pl.LightningModule):
             if mask.any():
                 adim = self.action_space_index.get_action_dim(action_idx)
                 valid_dims[mask, :, :adim] = 1
-                encoded[mask] = self.action_encoders[action_name](z[mask, :, :adim])
+                encoded[mask] = self.action_encoders[action_name](z[mask, :, :adim]).to(encoded.dtype)
         return encoded, valid_dims
 
     def decode_actions_meanflow(
@@ -691,7 +691,7 @@ class MeanFlowerVLA(pl.LightningModule):
                 else:
                     h_masked = h[mask] if h.dim() >= 1 and h.shape[0] == B else h
                     pred = self.action_decoders[action_name](z[mask], h_masked)
-                decoded[mask, :, :adim] = pred[..., :adim] * valid_dims[mask, :, :adim]
+                decoded[mask, :, :adim] = (pred[..., :adim] * valid_dims[mask, :, :adim]).to(decoded.dtype)
         return decoded
 
     def encode_proprio(self, proprio: torch.Tensor, action_type: torch.Tensor, output_shape) -> torch.Tensor:
