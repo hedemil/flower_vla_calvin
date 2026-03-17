@@ -658,17 +658,20 @@ class MeanFlowerVLA(pl.LightningModule):
     # === Action Encoding/Decoding ===
 
     def encode_actions(self, z: torch.Tensor, action_type: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Encodes actions for each sample based on its action type."""
+        """Encode actions using action-specific encoders."""
+        default_dtype = next(self.parameters()).dtype
         action_type = action_type.to(self.device)
-        B = z.shape[0]
-        encoded = torch.zeros(B, z.shape[1], self.dit_dim, device=self.device, dtype=z.dtype)
-        valid_dims = torch.zeros_like(z)
+        batch_size = z.shape[0]
+        encoded = torch.zeros(batch_size, z.shape[1], self.dit_dim, device=self.device).to(default_dtype)
+        
+        # Track valid dimensions per type
+        valid_dims = torch.zeros_like(z).to(default_dtype)
+        
         for action_name, action_idx in self.action_space_index.action_spaces.items():
             mask = (action_type == action_idx)
             if mask.any():
-                adim = self.action_space_index.get_action_dim(action_idx)
-                valid_dims[mask, :, :adim] = 1
-                encoded[mask] = self.action_encoders[action_name](z[mask, :, :adim]).to(encoded.dtype)
+                encoded = self.action_encoders[action_name](z)
+        
         return encoded, valid_dims
 
     def decode_actions_meanflow(
