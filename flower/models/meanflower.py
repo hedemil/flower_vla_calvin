@@ -751,34 +751,40 @@ class MeanFlowerVLA(pl.LightningModule):
         dtdt = torch.ones_like(texp)
         drdt = torch.zeros_like(rexp)
 
-        # Compute u and du/dt using JVP.
-        # Monkey-patch nn.Linear and RmsNorm to cast weights to input dtype
-        # so dual tensors with promoted tangents don't cause mixed-dtype crashes.
-        _orig_linear_forward = nn.Linear.forward
-        _orig_rmsnorm_forward = RmsNorm.forward
+        # # Compute u and du/dt using JVP.
+        # # Monkey-patch nn.Linear and RmsNorm to cast weights to input dtype
+        # # so dual tensors with promoted tangents don't cause mixed-dtype crashes.
+        # _orig_linear_forward = nn.Linear.forward
+        # _orig_rmsnorm_forward = RmsNorm.forward
 
-        def _jvp_safe_linear_forward(self, input):
-            return F.linear(
-                input,
-                self.weight.to(input.dtype),
-                self.bias.to(input.dtype) if self.bias is not None else None,
-            )
+        # def _jvp_safe_linear_forward(self, input):
+        #     return F.linear(
+        #         input,
+        #         self.weight.to(input.dtype),
+        #         self.bias.to(input.dtype) if self.bias is not None else None,
+        #     )
 
-        def _jvp_safe_rmsnorm_forward(self, x):
-            return F.rms_norm(x, self.normalized_shape, self.weight.to(x.dtype), self.eps)
+        # def _jvp_safe_rmsnorm_forward(self, x):
+        #     return F.rms_norm(x, self.normalized_shape, self.weight.to(x.dtype), self.eps)
 
         with torch.amp.autocast("cuda", enabled=False):
-            nn.Linear.forward = _jvp_safe_linear_forward
-            RmsNorm.forward = _jvp_safe_rmsnorm_forward
-            try:
-                u_pred, dudt = torch.func.jvp(
-                    u_func,
-                    (z, texp, rexp),
-                    (v, dtdt, drdt)
-                )
-            finally:
-                nn.Linear.forward = _orig_linear_forward
-                RmsNorm.forward = _orig_rmsnorm_forward
+            # nn.Linear.forward = _jvp_safe_linear_forward
+            # RmsNorm.forward = _jvp_safe_rmsnorm_forward
+            # try:
+            #     u_pred, dudt = torch.func.jvp(
+            #         u_func,
+            #         (z, texp, rexp),
+            #         (v, dtdt, drdt)
+            #     )
+            # finally:
+            #     nn.Linear.forward = _orig_linear_forward
+            #     RmsNorm.forward = _orig_rmsnorm_forward
+
+            u_pred, dudt = torch.func.jvp(
+                u_func,
+                (z, texp, rexp),
+                (v, dtdt, drdt)
+            )
 
             # u_tgt = v - h * du/dt
             h = (texp - rexp).clamp(min=0.0, max=1.0)
