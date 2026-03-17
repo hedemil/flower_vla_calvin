@@ -682,19 +682,14 @@ class MeanFlowerVLA(pl.LightningModule):
         Decodes latent representations into actions using MeanFlowDecoder.
         The decoder is conditioned on h = t - r.
         """
+        default_dtype = next(self.parameters()).dtype
         B = z.shape[0]
         max_action_dim = self.action_dim
-        decoded = torch.zeros(B, z.shape[1], max_action_dim, device=self.device, dtype=z.dtype)
+        decoded = torch.zeros(B, z.shape[1], max_action_dim, device=self.device, dtype=default_dtype)
         for action_name, action_idx in self.action_space_index.action_spaces.items():
             mask = (action_type == action_idx)
             if mask.any():
-                adim = self.action_space_index.get_action_dim(action_idx)
-                if mask.all():
-                    pred = self.action_decoders[action_name](z, h)
-                else:
-                    h_masked = h[mask] if h.dim() >= 1 and h.shape[0] == B else h
-                    pred = self.action_decoders[action_name](z[mask], h_masked)
-                decoded[mask, :, :adim] = (pred[..., :adim] * valid_dims[mask, :, :adim]).to(decoded.dtype)
+                decoded = self.action_decoders[action_name](z, h)
         return decoded
 
     def encode_proprio(self, proprio: torch.Tensor, action_type: torch.Tensor, output_shape) -> torch.Tensor:
@@ -703,17 +698,17 @@ class MeanFlowerVLA(pl.LightningModule):
         """
         batch_size, _ = output_shape
         default_dtype = next(self.parameters()).dtype
-        
+
         if not self.use_proprio:
             return torch.zeros(batch_size, self.dit_dim, device=self.device)
-        
+
         encoded_proprio = torch.zeros(batch_size, self.dit_dim, device=self.device, dtype=default_dtype)
-        
+
         for action_name, action_idx in self.action_space_index.action_spaces.items():
             mask = (action_type == action_idx)
             if mask.any():
-                encoded_proprio[mask] = self.proprio_encoders[action_name](proprio[mask]).squeeze(1)
-        
+                encoded_proprio = self.proprio_encoders[action_name](proprio).squeeze(1)
+
         return encoded_proprio
 
    # === Loss Functions ===
@@ -737,17 +732,8 @@ class MeanFlowerVLA(pl.LightningModule):
         texp = t.view([b] + [1] * (actions.dim() - 1)).to(dtype=default_dtype)
         rexp = r.view([b] + [1] * (actions.dim() - 1)).to(dtype=default_dtype)
 
-        # Sample noise per action space
-        e = torch.zeros_like(actions)
-        for action_name, action_idx in self.action_space_index.action_spaces.items():
-            mask = (action_type == action_idx)
-            if mask.any():
-                adim = self.action_space_index.get_action_dim(action_idx)
-                noise_slice = torch.randn(
-                    (mask.sum(), actions.size(1), adim),
-                    dtype=actions.dtype, device=device
-                )
-                e[mask, :, :adim] = noise_slice
+        # Sample noise
+        e = torch.randn_like(actions, device=device).to(default_dtype)
 
         z = (1 - texp) * actions + texp * e
         v = e - actions  # target velocity
@@ -799,17 +785,17 @@ class MeanFlowerVLA(pl.LightningModule):
             u_tgt = (v - h * dudt).detach()
 
             # Build valid mask
-            valid_mask = torch.zeros_like(actions, dtype=torch.bool)
-            for action_name, action_idx in self.action_space_index.action_spaces.items():
-                mask = (action_type == action_idx)
-                if mask.any():
-                    adim = self.action_space_index.get_action_dim(action_idx)
-                    mask_expanded = mask.view(-1, 1, 1).expand(-1, actions.size(1), adim).to(device)
-                    valid_mask[mask, :, :adim] = mask_expanded[mask]
+            # valid_mask = torch.zeros_like(actions, dtype=torch.bool)
+            # for action_name, action_idx in self.action_space_index.action_spaces.items():
+            #     mask = (action_type == action_idx)
+            #     if mask.any():
+            #         adim = self.action_space_index.get_action_dim(action_idx)
+            #         mask_expanded = mask.view(-1, 1, 1).expand(-1, actions.size(1), adim).to(device)
+            #         valid_mask[mask, :, :adim] = mask_expanded[mask]
 
             # Compute loss only over valid dimensions
             diff = u_pred - u_tgt
-            diff = diff * valid_mask.to(dtype=default_dtype)
+            # diff = diff * valid_mask.to(dtype=default_dtype)
             loss_per_sample = (diff ** 2).sum(dim=(1, 2))
             raw_mse_per_sample = loss_per_sample.detach()
 
@@ -827,15 +813,15 @@ class MeanFlowerVLA(pl.LightningModule):
 
         # Monitor metrics
         with torch.no_grad():
-            valid_u = u_pred[valid_mask]
-            valid_v = v[valid_mask]
-            valid_utgt = u_tgt[valid_mask]
+            valid_u = u_pred
+            valid_v = v
+            valid_utgt = u_tgt
             v_loss = ((valid_u - valid_v) ** 2).mean()
             # Raw MSE before adaptive normalization — the real convergence signal
             raw_mse = raw_mse_per_sample.mean()
             # Track du/dt magnitude — if this vanishes, the model degenerates
             # to standard flow and single-step sampling will fail.
-            dudt_norm = dudt[valid_mask].norm(dim=0).mean()
+            dudt_norm = dudt.norm(dim=0).mean()
             # Prediction/target norms
             u_pred_norm = valid_u.norm(dim=0).mean()
             u_tgt_norm = valid_utgt.norm(dim=0).mean()
@@ -852,7 +838,7 @@ class MeanFlowerVLA(pl.LightningModule):
             low_mask = t_flat < 0.3
             mid_mask = (t_flat >= 0.3) & (t_flat < 0.7)
             high_mask = t_flat >= 0.7
-            u_v_diff = (u_pred - v) ** 2 * valid_mask.to(dtype=default_dtype)
+            u_v_diff = (u_pred - v) ** 2
             u_v_per_sample = u_v_diff.sum(dim=(1, 2))
             vloss_t_low = u_v_per_sample[low_mask].mean() if low_mask.any() else torch.tensor(0.0)
             vloss_t_mid = u_v_per_sample[mid_mask].mean() if mid_mask.any() else torch.tensor(0.0)
@@ -1151,17 +1137,27 @@ class MeanFlowerVLA(pl.LightningModule):
         return self.decode_actions(cx, action_type, valid_dims)
 
     def action_specific_adaln(self, global_cond: torch.Tensor, action_type: torch.Tensor) -> List[torch.Tensor]:
-        """Computes action-specific AdaLN modulation signals."""
+        """
+        Generate action-specific AdaLN signals.
+        """
+        default_type = next(self.parameters()).dtype
         batch_size = global_cond.shape[0]
         num_chunks = 9 if self.use_cross_attn else 6
-        mod_signals = [torch.zeros(batch_size, self.dit_dim, device=self.device, dtype=global_cond.dtype) for _ in range(num_chunks)]
+        device = global_cond.device
+        
+        mod_signals = [
+            torch.zeros(batch_size, self.dit_dim, device=device, dtype=default_type) 
+            for _ in range(num_chunks)
+        ]
+        
         for action_idx in range(len(self.action_space_index.action_spaces)):
             mask = (action_type == action_idx)
             if mask.any():
                 action_name = self.action_space_index.get_action_name(action_idx)
-                action_mod = self.adaln[action_name](global_cond[mask])
+                action_mod = self.adaln[action_name](global_cond)
                 for i, signal in enumerate(action_mod):
-                    mod_signals[i][mask] = signal
+                    mod_signals[i] = signal
+        
         return mod_signals
 
     # === Inference ===
