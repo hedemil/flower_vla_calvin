@@ -24,7 +24,7 @@ pretrained_model_path: null
 
 # Model flags
 use_second_view: True
-second_view_key: rgb_gripper
+second_view_key: image_wrist
 action_type_adaln: True
 use_causal_attention: true
 use_cross_attn: True
@@ -50,8 +50,8 @@ rope_theta: 32.0
 
 # Mean Flow Configuration
 noise_dist: logit_normal
-P_mean: -0.4
-P_std: 1.0
+P_mean: -2.0 # -0.4 for ImageNet 256 -2.0 for CIFAR10
+P_std: 2.0 # 1.0 for ImageNet 256, 2.0 for CIFAR10
 ratio: 0.75
 
 # Optimizer Configuration

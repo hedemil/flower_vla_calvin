@@ -27,8 +27,8 @@ set -euo pipefail
 # ---------------------
 # Parse model argument
 # ---------------------
-MODEL="${1:?Usage: sbatch $0 <model> [hydra overrides...]}"
-shift
+MODEL="${2:-meanflower}"
+shift 2 || shift || true
 
 # ---------------------
 # Paths
