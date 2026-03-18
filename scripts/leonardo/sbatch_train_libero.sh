@@ -27,8 +27,8 @@ set -euo pipefail
 # ---------------------
 # Parse model argument
 # ---------------------
-MODEL="${2:-meanflower}"
-shift 2 || shift || true
+MODEL="${1:-meanflower}"
+shift 1 || true
 
 # ---------------------
 # Paths
