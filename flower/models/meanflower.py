@@ -131,6 +131,8 @@ class MeanFlowerVLA(pl.LightningModule):
         self._setup_vlm(vlm_path, freeze_vision_tower, freeze_florence, freeze_embeddings_only)
         hidden_dim = self.vlm.config.text_config.d_model
         self.vlm_latent_dim = hidden_dim
+        self.action_type_adaln = action_type_adaln
+        self.use_proprio = use_proprio
 
         # Setup DiT components (Mean Flow version with MeanFlowDecoder)
         self._setup_dit_components_meanflow(
@@ -181,6 +183,73 @@ class MeanFlowerVLA(pl.LightningModule):
         if load_pretrained and pretrained_model_path is not None:
             self._load_pretrained_weights(pretrained_model_path)
 
+    def _load_pretrained_weights(self, pretrained_model_path: str):
+        """Loads pretrained weights, handling key mismatches (e.g., different prefixes)."""
+        print(f"Loading pretrained weights from {pretrained_model_path}...")
+        if pretrained_model_path.endswith('.safetensors'):
+            from safetensors.torch import load_file
+            state_dict = load_file(pretrained_model_path, device=str(self.device))
+            checkpoint = {"state_dict": state_dict}
+        else:
+            checkpoint = torch.load(pretrained_model_path, map_location=self.device)
+            state_dict = checkpoint.get("state_dict", checkpoint)
+
+        state_dict = checkpoint.get("state_dict", checkpoint)
+
+        if ("callbacks" in checkpoint and
+                "EMA" in checkpoint["callbacks"] and
+                "ema_weights" in checkpoint["callbacks"]["EMA"]):
+            print("Found EMA weights in checkpoint, attempting to load them...")
+            ema_weights_list = checkpoint['callbacks']['EMA']['ema_weights']
+            original_state_dict = checkpoint.get("state_dict", checkpoint)
+            state_dict = {}
+            ema_idx = 0
+            for param_name, original_param in original_state_dict.items():
+                if ema_idx < len(ema_weights_list):
+                    ema_weight = ema_weights_list[ema_idx]
+                    if ema_weight.shape == original_param.shape:
+                        state_dict[param_name] = ema_weight
+                        ema_idx += 1
+                    else:
+                        found_match = False
+                        for temp_idx in range(ema_idx, min(ema_idx + 20, len(ema_weights_list))):
+                            if ema_weights_list[temp_idx].shape == original_param.shape:
+                                state_dict[param_name] = ema_weights_list[temp_idx]
+                                ema_weights_list[temp_idx], ema_weights_list[ema_idx] = ema_weights_list[ema_idx], ema_weights_list[temp_idx]
+                                ema_idx += 1
+                                found_match = True
+                                break
+                        if not found_match:
+                            print(f"Warning: No matching EMA weight found for {param_name}, using original")
+                            state_dict[param_name] = original_param
+                else:
+                    print(f"Warning: Ran out of EMA weights at {param_name}, using original")
+                    state_dict[param_name] = original_param
+            print(f"Successfully matched {ema_idx} EMA weights out of {len(ema_weights_list)} total")
+
+        # Fix key mismatches
+        new_state_dict = {}
+        for key, value in state_dict.items():
+            new_key = key.replace("agent.", "")
+            if "vlm.language_encoder." in new_key:
+                new_key = new_key.replace("vlm.language_encoder.", "vlm.language_model.model.encoder.")
+            new_key = new_key.replace(".mlp.c_fc1.", ".mlp.fc1.")
+            new_key = new_key.replace(".mlp.c_fc2.", ".mlp.fc2.")
+            new_key = new_key.replace(".mlp.c_proj.", ".mlp.proj.")
+            new_state_dict[new_key] = value
+
+        missing_keys, unexpected_keys = self.load_state_dict(new_state_dict, strict=False)
+        print(f"Pretrained weights loaded:")
+        if missing_keys:
+            print(f"  Missing keys (randomly initialized): {len(missing_keys)}")
+            print(f"    {missing_keys[:30]} ...")
+        if unexpected_keys:
+            print(f"  Unexpected keys (ignored): {len(unexpected_keys)}")
+            print(f"    {unexpected_keys[:30]} ...")
+        if not missing_keys and not unexpected_keys:
+            print("  All keys matched successfully!")
+        return missing_keys, unexpected_keys
+    
     # === Initialization Helpers ===
 
     def _init_flags(self, **kwargs):
@@ -271,6 +340,37 @@ class MeanFlowerVLA(pl.LightningModule):
             self.proprio_encoders = nn.ModuleDict()
         self.adaln = nn.ModuleDict() if self.action_type_adaln else None
 
+        # Set up shared conditioning components
+        self.cond_linear = nn.Linear(hidden_dim, dit_dim, bias=False)
+        self.t_embedder = TimestepEmbedder(dit_dim)
+        self.cond_norm = RmsNorm(hidden_dim)
+        self.frequency_embedder = FreqEmbedder(dit_dim)
+        self.action_space_embedder = ActionSpaceEmbedderParameter(
+            dit_dim,
+            max_actions=len(self.action_space_index.action_spaces)
+        )
+
+        # Set up positional encoding if neither RoPE nor NoPE is used
+        if not use_rope and not use_nope:
+            self.positional_encoding = nn.Parameter(
+                torch.randn(1, act_window_size, dit_dim) * 0.1
+            )
+
+        # Set up DiT blocks
+        self.dit = nn.ModuleList([
+            FlowBlock(
+                dim=dit_dim,
+                heads=n_heads,
+                attn_pdrop=attn_pdrop,
+                resid_pdrop=resid_pdrop,
+                mlp_pdrop=mlp_pdrop,
+                use_cross_attn=use_cross_attn,
+                use_rope=use_rope,
+                query_seq_len=query_seq_len,
+                rope_theta=rope_theta
+            ) for _ in range(n_layers)
+        ])
+
         # Set up action-specific components
         for action_name, action_idx in self.action_space_index.action_spaces.items():
             input_dim = self.action_space_index.get_action_dim(action_idx)
@@ -312,124 +412,13 @@ class MeanFlowerVLA(pl.LightningModule):
                         device=self.device
                     )
 
-        # Set up shared AdaLN if not using action-specific AdaLN
-        if not self.action_type_adaln:
-            self.adaln = SharedAdaLNController(
-                dit_dim,
-                global_conddim=dit_dim,
-                use_cross_attn=use_cross_attn
-            )
-
-        # Set up shared conditioning components
-        self.cond_linear = nn.Linear(hidden_dim, dit_dim, bias=False)
-        self.t_embedder = TimestepEmbedder(dit_dim)
-        self.cond_norm = RmsNorm(hidden_dim)
-        self.frequency_embedder = FreqEmbedder(dit_dim)
-        self.action_space_embedder = ActionSpaceEmbedderParameter(
-            dit_dim,
-            max_actions=len(self.action_space_index.action_spaces)
-        )
-
-        # Set up positional encoding if neither RoPE nor NoPE is used
-        if not use_rope and not use_nope:
-            self.positional_encoding = nn.Parameter(
-                torch.randn(1, act_window_size, dit_dim) * 0.1
-            )
-
-        # Set up DiT blocks
-        self.dit = nn.ModuleList([
-            FlowBlock(
-                dim=dit_dim,
-                heads=n_heads,
-                attn_pdrop=attn_pdrop,
-                resid_pdrop=resid_pdrop,
-                mlp_pdrop=mlp_pdrop,
-                use_cross_attn=use_cross_attn,
-                use_rope=use_rope,
-                query_seq_len=query_seq_len,
-                rope_theta=rope_theta
-            ) for _ in range(n_layers)
-        ])
-
-    def _create_prompt_embed(self, prompt_text):
-        """Create embeddings for prompt tokens."""
-        self.tokenizer.add_special_tokens({'additional_special_tokens': [prompt_text]})
-        self.vlm.resize_token_embeddings(len(self.tokenizer))
-        prompt_token_id = self.tokenizer.convert_tokens_to_ids(prompt_text)
-        prompt_embed = nn.Parameter(
-            self.vlm.get_input_embeddings()(torch.tensor(prompt_token_id)),
-            requires_grad=False
-        )
-        return prompt_embed.unsqueeze(0).unsqueeze(0)
-
-    def _load_pretrained_weights(self, pretrained_model_path: str):
-        """Loads pretrained weights, handling key mismatches (e.g., different prefixes)."""
-        print(f"Loading pretrained weights from {pretrained_model_path}...")
-        if pretrained_model_path.endswith('.safetensors'):
-            from safetensors.torch import load_file
-            state_dict = load_file(pretrained_model_path, device=str(self.device))
-            checkpoint = {"state_dict": state_dict}
-        else:
-            checkpoint = torch.load(pretrained_model_path, map_location=self.device)
-            state_dict = checkpoint.get("state_dict", checkpoint)
-
-        state_dict = checkpoint.get("state_dict", checkpoint)
-
-        if ("callbacks" in checkpoint and
-                "EMA" in checkpoint["callbacks"] and
-                "ema_weights" in checkpoint["callbacks"]["EMA"]):
-            print("Found EMA weights in checkpoint, attempting to load them...")
-            ema_weights_list = checkpoint['callbacks']['EMA']['ema_weights']
-            original_state_dict = checkpoint.get("state_dict", checkpoint)
-            state_dict = {}
-            ema_idx = 0
-            for param_name, original_param in original_state_dict.items():
-                if ema_idx < len(ema_weights_list):
-                    ema_weight = ema_weights_list[ema_idx]
-                    if ema_weight.shape == original_param.shape:
-                        state_dict[param_name] = ema_weight
-                        ema_idx += 1
-                    else:
-                        found_match = False
-                        for temp_idx in range(ema_idx, min(ema_idx + 20, len(ema_weights_list))):
-                            if ema_weights_list[temp_idx].shape == original_param.shape:
-                                state_dict[param_name] = ema_weights_list[temp_idx]
-                                ema_weights_list[temp_idx], ema_weights_list[ema_idx] = ema_weights_list[ema_idx], ema_weights_list[temp_idx]
-                                ema_idx += 1
-                                found_match = True
-                                break
-                        if not found_match:
-                            print(f"Warning: No matching EMA weight found for {param_name}, using original")
-                            state_dict[param_name] = original_param
-                else:
-                    print(f"Warning: Ran out of EMA weights at {param_name}, using original")
-                    state_dict[param_name] = original_param
-            print(f"Successfully matched {ema_idx} EMA weights out of {len(ema_weights_list)} total")
-
-        # Fix key mismatches
-        new_state_dict = {}
-        for key, value in state_dict.items():
-            new_key = key.replace("agent.", "")
-            if "vlm.language_encoder." in new_key:
-                new_key = new_key.replace("vlm.language_encoder.", "vlm.language_model.model.encoder.")
-            new_key = new_key.replace(".mlp.c_fc1.", ".mlp.fc1.")
-            new_key = new_key.replace(".mlp.c_fc2.", ".mlp.fc2.")
-            new_key = new_key.replace(".mlp.c_proj.", ".mlp.proj.")
-            new_state_dict[new_key] = value
-
-        missing_keys, unexpected_keys = self.load_state_dict(new_state_dict, strict=False)
-        print(f"Pretrained weights loaded:")
-        if missing_keys:
-            print(f"  Missing keys (randomly initialized): {len(missing_keys)}")
-            print(f"    {missing_keys[:30]} ...")
-        if unexpected_keys:
-            print(f"  Unexpected keys (ignored): {len(unexpected_keys)}")
-            print(f"    {unexpected_keys[:30]} ...")
-        if not missing_keys and not unexpected_keys:
-            print("  All keys matched successfully!")
-        return missing_keys, unexpected_keys
-
-    # === Lightning Interface ===
+        # # Set up shared AdaLN if not using action-specific AdaLN
+        # if not self.action_type_adaln:
+        #     self.adaln = SharedAdaLNController(
+        #         dit_dim,
+        #         global_conddim=dit_dim,
+        #         use_cross_attn=use_cross_attn
+        #     )
 
     def configure_optimizers(self):
         """Configure optimizers and schedulers."""
@@ -547,175 +536,7 @@ class MeanFlowerVLA(pl.LightningModule):
             output["validation_loss"] = val_loss / len(batch)
             return output
 
-    def on_train_start(self):
-        """Move model to device on training start."""
-        self.to(self.device)
-        self.vlm.to(self.device)
-
-    def on_validation_start(self):
-        self.eval()
-
-    def on_validation_end(self):
-        self.train()
-
-    def encode_observations(self, batch: Dict) -> torch.Tensor:
-        """Encode observations using Florence-2"""
-        device = self.device
-        default_type = next(self.parameters()).dtype
-        
-        
-        embed_tensor = torch.zeros(len(batch["rgb_obs"]['rgb_static']), 1, 1)
-        action_type_tensor = torch.ones(len(batch["rgb_obs"]['rgb_static']), self.act_window_size, 7)
-        # Process primary image
-        image_tensor = batch["rgb_obs"]['rgb_static']
-        B, T, C, H, W = image_tensor.shape
-        
-        # Extract visual features
-        image_features = self.vlm._encode_image(
-            image_tensor.view(-1, C, H, W).to(device).to(default_type)
-        ).to(default_type)
-        image_features = image_features.view(B, T * image_features.shape[1], -1)
-        
-        # Process second view if enabled
-        if self.use_second_view:
-            image2_tensor = batch["rgb_obs"]['rgb_gripper']
-            image2_features = self.vlm._encode_image(
-                image2_tensor.view(-1, C, H, W).to(device).to(default_type)
-            ).to(default_type)
-            image2_features = image2_features.view(B, T * image2_features.shape[1], -1)
-            image_features = torch.cat([image_features, image2_features], dim=1)
-        
-        # Get text embeddings
-        # Get text embeddings once to reuse
-        constructed_prompts = self.construct_prompts(batch)
-        text_embeds = self._get_text_embeddings(constructed_prompts, device)
-        
-        # Add task prompt and aggregation tokens
-        task_prompt = self.prompt_embeds.expand(B, -1, -1).to(image_features.device)
-        
-        # Merge sequence
-        merged_embeds = torch.cat([
-            image_features,
-            task_prompt,
-            text_embeds.to(image_features.device)
-        ], dim=1)
-        
-        # Create attention mask
-        attention_mask = torch.ones(merged_embeds.shape[:2], device=merged_embeds.device)
-        
-        # Process through encoder
-        features = self.vlm.get_encoder()(
-            inputs_embeds=merged_embeds,
-            attention_mask=attention_mask
-        ).last_hidden_state
-
-        # Apply dropout 
-        features = self.vlm_token_dropout(features)
-
-        # Prepare frequency and action space embeddings
-        frequency_embeds = self.frequency_embedder(
-            torch.ones_like(embed_tensor).to(device) * 3
-        )
-        
-        # Get proprioception if enabled
-        proprio = None
-        if self.use_proprio and 'proprio' in batch[self.obs_modalities]:
-            proprio = batch[self.obs_modalities]['proprio'].to(device).to(default_type)
-
-        return {
-            'features': features,
-            'frequency_embeds': frequency_embeds,
-            'action_space_embeds': None,
-            'action_type': torch.ones_like(action_type_tensor), # actiont ype is always 1
-            'proprio': proprio,
-            'attention_mask': attention_mask,
-        }
-
-    def construct_prompts(self, dataset_batch):
-        """Constructs prompts for Florence-2's encoder."""
-        language_instruction = dataset_batch["lang_text"]
-        text_prompts = []
-        for instruction in language_instruction:
-            if self.vlm_prompt_style == "default":
-                text_prompts.append(self.format_instruction(instruction))
-            elif self.vlm_prompt_style == "feature_focused":
-                prompt = f"<od>{instruction}</od><grounding>identify objects and spatial relationships for robotic manipulation</grounding>"
-                text_prompts.append(prompt)
-            elif self.vlm_prompt_style == "state_oriented":
-                prompt = f"<od>{instruction}</od><referring_expression_segmentation>locate objects and regions for manipulation</referring_expression_segmentation>"
-                text_prompts.append(prompt)
-            else:
-                raise ValueError(f"Unknown prompt style: {self.vlm_prompt_style}")
-        return text_prompts
-
-    def _get_text_embeddings(self, text, device):
-        """Get text embeddings from raw strings."""
-        text_inputs = self.tokenizer(
-            text,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            max_length=77
-        ).to(device)
-        return self.vlm.get_input_embeddings()(text_inputs["input_ids"])
-
-    # === Action Encoding/Decoding ===
-
-    def encode_actions(self, z: torch.Tensor, action_type: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Encode actions using action-specific encoders."""
-        default_dtype = next(self.parameters()).dtype
-        action_type = action_type.to(self.device)
-        batch_size = z.shape[0]
-        encoded = torch.zeros(batch_size, z.shape[1], self.dit_dim, device=self.device).to(default_dtype)
-        
-        # Track valid dimensions per type
-        valid_dims = torch.zeros_like(z).to(default_dtype)
-        
-        for action_name, action_idx in self.action_space_index.action_spaces.items():
-            mask = (action_type == action_idx)
-            if mask.any():
-                encoded = self.action_encoders[action_name](z)
-        
-        return encoded, valid_dims
-
-    def decode_actions_meanflow(
-        self, z: torch.Tensor, h: torch.Tensor,
-        action_type: torch.Tensor, valid_dims: torch.Tensor
-    ) -> torch.Tensor:
-        """
-        Decodes latent representations into actions using MeanFlowDecoder.
-        The decoder is conditioned on h = t - r.
-        """
-        default_dtype = next(self.parameters()).dtype
-        B = z.shape[0]
-        max_action_dim = self.action_dim
-        decoded = torch.zeros(B, z.shape[1], max_action_dim, device=self.device, dtype=default_dtype)
-        for action_name, action_idx in self.action_space_index.action_spaces.items():
-            mask = (action_type == action_idx)
-            if mask.any():
-                decoded = self.action_decoders[action_name](z, h)
-        return decoded
-
-    def encode_proprio(self, proprio: torch.Tensor, action_type: torch.Tensor, output_shape) -> torch.Tensor:
-        """
-        Encode proprioception based on action type.
-        """
-        batch_size, _ = output_shape
-        default_dtype = next(self.parameters()).dtype
-
-        if not self.use_proprio:
-            return torch.zeros(batch_size, self.dit_dim, device=self.device)
-
-        encoded_proprio = torch.zeros(batch_size, self.dit_dim, device=self.device, dtype=default_dtype)
-
-        for action_name, action_idx in self.action_space_index.action_spaces.items():
-            mask = (action_type == action_idx)
-            if mask.any():
-                encoded_proprio = self.proprio_encoders[action_name](proprio).squeeze(1)
-
-        return encoded_proprio
-
-   # === Loss Functions ===
+    # === Loss Functions ===
     def meanflow_loss(self, cond: dict, actions: torch.Tensor, dataset_idx: Any = None) -> Tuple[torch.Tensor, Dict[str, Any]]:
         """
         Computes the Mean Flow loss using JVP (Jacobian Vector Product).
@@ -734,7 +555,7 @@ class MeanFlowerVLA(pl.LightningModule):
 
         logger.info(f"Sampled t: mean={t.mean().item():.4f}, std={t.std().item():.4f}, min={t.min().item():.4f}, max={t.max().item():.4f}")
         logger.info(f"Sampled r: mean={r.mean().item():.4f}, std={r.std().item():.4f}, min={r.min().item():.4f}, max={r.max().item():.4f}")
-        
+
         # Interpolate: z_t = (1 - t) * x + t * e
         texp = t.view([b] + [1] * (actions.dim() - 1)).to(dtype=default_dtype)
         rexp = r.view([b] + [1] * (actions.dim() - 1)).to(dtype=default_dtype)
@@ -895,65 +716,7 @@ class MeanFlowerVLA(pl.LightningModule):
         }
 
         return loss, losses_dict
-
-    # === Noise Distribution & Sampling for Mean Flow ===
-    def noise_distribution(self):
-        """Returns the noise distribution function based on config."""
-        if self.noise_dist == 'logit_normal':
-            return self._logit_normal_dist
-        elif self.noise_dist == 'uniform':
-            return self._uniform_dist
-        else:
-            raise ValueError(f"Unknown noise distribution: {self.noise_dist}")
-
-    def _logit_normal_dist(self, bz: int) -> torch.Tensor:
-        """Sample from logit-normal distribution. Math in float32 for stability."""
-        rnd_normal = torch.randn(
-            bz, 1, 1, 1,
-            device=self.P_mean.device,
-            dtype=torch.float32
-        )
-        out = torch.sigmoid(
-            rnd_normal * self.P_std.float() + self.P_mean.float()
-        )
-        return out.to(next(self.parameters()).dtype)
-
-    def _uniform_dist(self, bz: int) -> torch.Tensor:
-        """Sample from uniform distribution."""
-        return torch.rand(
-            bz, 1, 1, 1,
-            device=self.P_mean.device,
-            dtype=next(self.parameters()).dtype
-        )
-
-    def sample_tr(self, b: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Sample timesteps t and r with constraint t >= r.
-        `ratio` fraction of samples keep r != t (integral/mean-flow samples).
-        The remaining (1 - ratio) fraction get r = t (instantaneous velocity).
-        Matches py-meanflow reference: ratio=0.75 → 75% integral, 25% velocity.
-
-        Returns:
-            t: Sampled timesteps [B, 1, 1, 1]
-            r: Sampled timesteps [B, 1, 1, 1]
-        """
-        dtype = next(self.parameters()).dtype
-
-        t = self.noise_distribution()(b).to(device=self.device, dtype=dtype)
-        r = self.noise_distribution()(b).to(device=self.device, dtype=dtype)
-
-        # Ensure t >= r element-wise
-        t, r = torch.maximum(t, r), torch.minimum(t, r)
-
-        # With probability (1 - ratio), collapse to velocity (r = t)
-        prob = torch.rand(b, 1, 1, 1, device=self.device)
-        velocity_mask = prob < (1 - self.ratio)
-        r = torch.where(velocity_mask, t, r)
-
-        return t, r
-
-    # === Sampling Methods ===
-
+    
     def sample_actions(self, z: torch.Tensor, cond: Dict[str, torch.Tensor], inference: bool = False) -> torch.Tensor:
         """
         Mean Flow single-step sampling: z_0 = z_1 - u(z_1, t=1, r=0)
@@ -968,9 +731,7 @@ class MeanFlowerVLA(pl.LightningModule):
         u = self.dit_forward_meanflow(z, t_tensor, r_tensor, cond)
         z = z - u
         return z.clamp(-1, 1)  
-
-    # === DiT Forward ===
-
+    
     def dit_forward_meanflow(self, z: torch.Tensor, t: torch.Tensor, h: torch.Tensor, cond_dict: dict) -> torch.Tensor:
         """
         Forward pass through the DiT blocks using MeanFlowDecoder.
@@ -1096,6 +857,25 @@ class MeanFlowerVLA(pl.LightningModule):
             
         # Decode and return
         return self.decode_actions(cx, action_type, valid_dims)
+    
+    def encode_proprio(self, proprio: torch.Tensor, action_type: torch.Tensor, output_shape) -> torch.Tensor:
+        """
+        Encode proprioception based on action type.
+        """
+        batch_size, _ = output_shape
+        default_dtype = next(self.parameters()).dtype
+
+        if not self.use_proprio:
+            return torch.zeros(batch_size, self.dit_dim, device=self.device)
+
+        encoded_proprio = torch.zeros(batch_size, self.dit_dim, device=self.device, dtype=default_dtype)
+
+        for action_name, action_idx in self.action_space_index.action_spaces.items():
+            mask = (action_type == action_idx)
+            if mask.any():
+                encoded_proprio = self.proprio_encoders[action_name](proprio).squeeze(1)
+
+        return encoded_proprio
 
     def action_specific_adaln(self, global_cond: torch.Tensor, action_type: torch.Tensor) -> List[torch.Tensor]:
         """
@@ -1120,58 +900,220 @@ class MeanFlowerVLA(pl.LightningModule):
                     mod_signals[i] = signal
         
         return mod_signals
-
-    # === Inference ===
-
-    def forward(self, obs: Dict, goal: Dict) -> torch.Tensor:
-        """Inference forward pass for LIBERO evaluation."""
-        rgb_static = obs["rgb_obs"]['rgb_static']
-        rgb_gripper = obs["rgb_obs"]['rgb_gripper']
-
-        batch = {
-            "rgb_obs": {
-                "rgb_static": rgb_static,
-                "rgb_gripper": rgb_gripper
-            },
-            "lang_text": [goal["lang_text"]]
-        }
-        features = self.encode_observations(batch)
-
-        noise = torch.randn(
-            len(features['features']),
-            self.act_window_size,
-            self.action_dim,
-            device=features['features'].device
+    
+    def _create_prompt_embed(self, prompt_text):
+        """Create embeddings for prompt tokens."""
+        self.tokenizer.add_special_tokens({'additional_special_tokens': [prompt_text]})
+        self.vlm.resize_token_embeddings(len(self.tokenizer))
+        prompt_token_id = self.tokenizer.convert_tokens_to_ids(prompt_text)
+        prompt_embed = nn.Parameter(
+            self.vlm.get_input_embeddings()(torch.tensor(prompt_token_id)),
+            requires_grad=False
         )
-        return self.sample_actions(noise, features, inference=True)
+        return prompt_embed.unsqueeze(0).unsqueeze(0)
+    
+    def encode_observations(self, batch: Dict) -> torch.Tensor:
+        """Encode observations using Florence-2"""
+        device = self.device
+        default_type = next(self.parameters()).dtype
+        
+        
+        embed_tensor = torch.zeros(len(batch["rgb_obs"]['rgb_static']), 1, 1)
+        action_type_tensor = torch.ones(len(batch["rgb_obs"]['rgb_static']), self.act_window_size, 7)
+        # Process primary image
+        image_tensor = batch["rgb_obs"]['rgb_static']
+        B, T, C, H, W = image_tensor.shape
+        
+        # Extract visual features
+        image_features = self.vlm._encode_image(
+            image_tensor.view(-1, C, H, W).to(device).to(default_type)
+        ).to(default_type)
+        image_features = image_features.view(B, T * image_features.shape[1], -1)
+        
+        # Process second view if enabled
+        if self.use_second_view:
+            image2_tensor = batch["rgb_obs"]['rgb_gripper']
+            image2_features = self.vlm._encode_image(
+                image2_tensor.view(-1, C, H, W).to(device).to(default_type)
+            ).to(default_type)
+            image2_features = image2_features.view(B, T * image2_features.shape[1], -1)
+            image_features = torch.cat([image_features, image2_features], dim=1)
+        
+        # Get text embeddings
+        # Get text embeddings once to reuse
+        constructed_prompts = self.construct_prompts(batch)
+        text_embeds = self._get_text_embeddings(constructed_prompts, device)
+        
+        # Add task prompt and aggregation tokens
+        task_prompt = self.prompt_embeds.expand(B, -1, -1).to(image_features.device)
+        
+        # Merge sequence
+        merged_embeds = torch.cat([
+            image_features,
+            task_prompt,
+            text_embeds.to(image_features.device)
+        ], dim=1)
+        
+        # Create attention mask
+        attention_mask = torch.ones(merged_embeds.shape[:2], device=merged_embeds.device)
+        
+        # Process through encoder
+        features = self.vlm.get_encoder()(
+            inputs_embeds=merged_embeds,
+            attention_mask=attention_mask
+        ).last_hidden_state
 
-    @torch.no_grad()
-    def step(self, obs: Dict, goal: Dict) -> torch.Tensor:
-        """Do one step of inference, handling action chunking."""
-        if self.rollout_step_counter % self.multistep == 0:
-            if getattr(self, 'use_bf16', False):
-                with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-                    self.pred_action_seq = self(obs, goal)
-            else:
-                self.pred_action_seq = self(obs, goal)
+        # Apply dropout 
+        features = self.vlm_token_dropout(features)
 
-        if not self.return_act_chunk:
-            current_action = self.pred_action_seq[0, self.rollout_step_counter]
-            if len(current_action.shape) == 2:
-                current_action = einops.rearrange(current_action, 'b d -> b 1 d')
-        else:
-            current_action = self.pred_action_seq
+        # Prepare frequency and action space embeddings
+        frequency_embeds = self.frequency_embedder(
+            torch.ones_like(embed_tensor).to(device) * 3
+        )
+        
+        # Get proprioception if enabled
+        proprio = None
+        if self.use_proprio and 'proprio' in batch[self.obs_modalities]:
+            proprio = batch[self.obs_modalities]['proprio'].to(device).to(default_type)
 
-        self.rollout_step_counter += 1
-        if self.rollout_step_counter == self.multistep:
-            self.rollout_step_counter = 0
-        return current_action
+        return {
+            'features': features,
+            'frequency_embeds': frequency_embeds,
+            'action_space_embeds': None,
+            'action_type': torch.ones_like(action_type_tensor), # actiont ype is always 1
+            'proprio': proprio,
+            'attention_mask': attention_mask,
+        }
+    
+    def encode_actions(self, z: torch.Tensor, action_type: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Encode actions using action-specific encoders."""
+        default_dtype = next(self.parameters()).dtype
+        action_type = action_type.to(self.device)
+        batch_size = z.shape[0]
+        encoded = torch.zeros(batch_size, z.shape[1], self.dit_dim, device=self.device).to(default_dtype)
+        
+        # Track valid dimensions per type
+        valid_dims = torch.zeros_like(z).to(default_dtype)
+        
+        for action_name, action_idx in self.action_space_index.action_spaces.items():
+            mask = (action_type == action_idx)
+            if mask.any():
+                encoded = self.action_encoders[action_name](z)
+        
+        return encoded, valid_dims
 
-    def reset(self):
-        """Reset model state for new rollout."""
-        self.rollout_step_counter = 0
-        self.pred_action_seq = None
+    def decode_actions_meanflow(
+        self, z: torch.Tensor, h: torch.Tensor,
+        action_type: torch.Tensor, valid_dims: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Decodes latent representations into actions using MeanFlowDecoder.
+        The decoder is conditioned on h = t - r.
+        """
+        default_dtype = next(self.parameters()).dtype
+        B = z.shape[0]
+        max_action_dim = self.action_dim
+        decoded = torch.zeros(B, z.shape[1], max_action_dim, device=self.device, dtype=default_dtype)
+        for action_name, action_idx in self.action_space_index.action_spaces.items():
+            mask = (action_type == action_idx)
+            if mask.any():
+                decoded = self.action_decoders[action_name](z, h)
+        return decoded
+
+    def on_train_start(self):
+        """Move model to device on training start."""
+        self.to(self.device)
+        self.vlm.to(self.device)
+
+    def on_validation_start(self):
         self.eval()
+
+    def on_validation_end(self):
+        self.train()
+
+    def construct_prompts(self, dataset_batch):
+        """Constructs prompts for Florence-2's encoder."""
+        language_instruction = dataset_batch["lang_text"]
+        text_prompts = []
+        for instruction in language_instruction:
+            if self.vlm_prompt_style == "default":
+                text_prompts.append(self.format_instruction(instruction))
+            elif self.vlm_prompt_style == "feature_focused":
+                prompt = f"<od>{instruction}</od><grounding>identify objects and spatial relationships for robotic manipulation</grounding>"
+                text_prompts.append(prompt)
+            elif self.vlm_prompt_style == "state_oriented":
+                prompt = f"<od>{instruction}</od><referring_expression_segmentation>locate objects and regions for manipulation</referring_expression_segmentation>"
+                text_prompts.append(prompt)
+            else:
+                raise ValueError(f"Unknown prompt style: {self.vlm_prompt_style}")
+        return text_prompts
+
+    def _get_text_embeddings(self, text, device):
+        """Get text embeddings from raw strings."""
+        text_inputs = self.tokenizer(
+            text,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=77
+        ).to(device)
+        return self.vlm.get_input_embeddings()(text_inputs["input_ids"])
+
+    # === Noise Distribution & Sampling for Mean Flow ===
+    def noise_distribution(self):
+        """Returns the noise distribution function based on config."""
+        if self.noise_dist == 'logit_normal':
+            return self._logit_normal_dist
+        elif self.noise_dist == 'uniform':
+            return self._uniform_dist
+        else:
+            raise ValueError(f"Unknown noise distribution: {self.noise_dist}")
+
+    def _logit_normal_dist(self, bz: int) -> torch.Tensor:
+        """Sample from logit-normal distribution. Math in float32 for stability."""
+        rnd_normal = torch.randn(
+            bz, 1, 1, 1,
+            device=self.P_mean.device,
+            dtype=torch.float32
+        )
+        out = torch.sigmoid(
+            rnd_normal * self.P_std.float() + self.P_mean.float()
+        )
+        return out.to(next(self.parameters()).dtype)
+
+    def _uniform_dist(self, bz: int) -> torch.Tensor:
+        """Sample from uniform distribution."""
+        return torch.rand(
+            bz, 1, 1, 1,
+            device=self.P_mean.device,
+            dtype=next(self.parameters()).dtype
+        )
+
+    def sample_tr(self, b: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Sample timesteps t and r with constraint t >= r.
+        `ratio` fraction of samples keep r != t (integral/mean-flow samples).
+        The remaining (1 - ratio) fraction get r = t (instantaneous velocity).
+        Matches py-meanflow reference: ratio=0.75 → 75% integral, 25% velocity.
+
+        Returns:
+            t: Sampled timesteps [B, 1, 1, 1]
+            r: Sampled timesteps [B, 1, 1, 1]
+        """
+        dtype = next(self.parameters()).dtype
+
+        t = self.noise_distribution()(b).to(device=self.device, dtype=dtype)
+        r = self.noise_distribution()(b).to(device=self.device, dtype=dtype)
+
+        # Ensure t >= r element-wise
+        t, r = torch.maximum(t, r), torch.minimum(t, r)
+
+        # With probability (1 - ratio), collapse to velocity (r = t)
+        prob = torch.rand(b, 1, 1, 1, device=self.device)
+        velocity_mask = prob < (1 - self.ratio)
+        r = torch.where(velocity_mask, t, r)
+
+        return t, r
 
     # === Logging ===
 
