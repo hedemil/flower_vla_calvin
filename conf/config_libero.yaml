@@ -24,7 +24,7 @@ act_seq_len: 10
 multistep: ${act_seq_len}
 p_last_state: 0
 max_epochs: 40
-rollout_lh_skip_epochs: 9
+rollout_lh_skip_epochs: 19  # was 9
 num_workers: 1
 benchmark_name: ${libero_benchmark} # calvin_abcd
 libero_benchmark: libero_spatial # libero_goal # libero_spatial, libero_object, LIBERO_GOAL, LIBERO_90, LIBERO_10

@@ -511,7 +511,7 @@ class MeanFlowerVLA(pl.LightningModule):
         total_loss = total_loss / len(batch)
 
         # Log metrics
-        self._log_training_metrics(total_loss, action_loss, total_bs)
+        self._log_training_metrics(total_loss, action_loss, total_bs, losses_dict)
 
         # Optimization step
         # opt.zero_grad()
@@ -883,10 +883,6 @@ class MeanFlowerVLA(pl.LightningModule):
             "vloss_t_high": vloss_t_high.item(),
             "h_mean": h.mean().item(),
         }
-
-        if hasattr(self, 'accelerator') and self.accelerator is not None and wandb.run is not None:
-            if self.accelerator.is_main_process:
-                wandb.log(losses_dict)
 
         return loss, losses_dict
 

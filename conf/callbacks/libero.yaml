@@ -23,7 +23,7 @@ rollout_lh:
   max_steps: 520
   empty_cache: false
   debug: false
-  n_eval: 50
+  n_eval: 10  # was 50
   num_procs: 10
   use_mp: false
   task_embedding_format: clip
