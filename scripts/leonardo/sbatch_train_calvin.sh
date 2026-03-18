@@ -134,6 +134,7 @@ python flower/training_calvin.py \
     benchmark_name=calvin_abcd \
     model="$MODEL" \
     logger.name="$WANDB_NAME" \
+    hydra.run.dir="$CODE_DIR/logs/runs/\${now:%Y-%m-%d}/${MODEL}_${SLURM_JOB_ID}" \
     "$@"
 
 echo ""
