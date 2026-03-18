@@ -1,17 +1,24 @@
 #!/bin/bash
 # ==============================================================================
-# One-time setup for Leonardo HPC (CINECA)
-# Run on login node (has internet access)
+# Leonardo Setup Script (venv-based, no container)
+# ==============================================================================
+# Run on the Leonardo login node to prepare everything for training.
+#
+# Storage layout:
+#   $FAST — code, checkpoints, wandb runs (fast scratch, high IOPS)
+#   $WORK — Python venv, datasets, HuggingFace cache (persistent, large)
 #
 # Prerequisites:
-#   - LEONARDO_FAST and LEONARDO_WORK env vars set (typically $FAST and $WORK)
-#   - Singularity container already transferred to $LEONARDO_WORK/containers/
+#   - Set LEONARDO_FAST and LEONARDO_WORK, e.g.:
+#       export LEONARDO_FAST=/leonardo_scratch/fast/<YOUR_ACCOUNT>
+#       export LEONARDO_WORK=/leonardo_work/<YOUR_ACCOUNT>
 #
 # Usage:
 #   ./scripts/leonardo/setup_leonardo.sh [step]
 #
 # Steps (run in order, or specify one):
 #   dirs      - Create directory structure
+#   venv      - Create Python venv and install dependencies
 #   calvin    - Download + preprocess CALVIN dataset
 #   libero    - Download LIBERO datasets
 #   hf_cache  - Pre-cache HuggingFace models (Florence-2)
@@ -40,79 +47,129 @@ if [[ -z "$WORK" ]]; then
     exit 1
 fi
 
-PROJECT_FAST="$FAST/flower_vla_calvin"
-SIF="$WORK/containers/flower_vla_calvin.sif"
+CODE_DIR="$FAST/flower_vla_calvin"
+VENV_DIR="$WORK/venvs/flower_vla_calvin"
+HF_CACHE="$WORK/hf_cache"
 
 STEP="${1:-all}"
 
-# Helper to run a command inside the Singularity container (CPU-only, login node)
-run_in_container() {
-    singularity exec \
-        --no-home \
-        --env HOME=/appuser \
-        --bind "$WORK/data/calvin:/workspace/flower_vla_calvin/dataset" \
-        --bind "$WORK/data/libero:/workspace/flower_vla_calvin/LIBERO/libero/datasets" \
-        --bind "$WORK/hf_cache:/appuser/.cache/huggingface" \
-        --bind "$PROJECT_FAST/conf:/workspace/flower_vla_calvin/conf" \
-        --bind "$PROJECT_FAST/flower:/workspace/flower_vla_calvin/flower" \
-        "$SIF" \
-        "$@"
-}
-
 # ==============================================================================
-# Step: dirs - Create directory structure
+# Step: dirs - Create directory structure and sync code
 # ==============================================================================
 setup_dirs() {
-    echo "=== Creating directory structure ==="
+    echo "=== [1] Creating directory structure ==="
 
-    mkdir -p "$PROJECT_FAST"/{logs,checkpoints,wandb_runs,conf,flower}
-    mkdir -p "$WORK"/{containers,hf_cache}
+    mkdir -p "$CODE_DIR"/{logs,checkpoints,wandb_runs}
+    mkdir -p "$WORK"/{venvs,hf_cache}
     mkdir -p "$WORK"/data/{calvin,libero}
 
     echo "Fast storage ($FAST):"
-    echo "  $PROJECT_FAST/logs/"
-    echo "  $PROJECT_FAST/checkpoints/"
-    echo "  $PROJECT_FAST/wandb_runs/"
-    echo "  $PROJECT_FAST/conf/        (bind-mount for config iteration)"
-    echo "  $PROJECT_FAST/flower/      (bind-mount for code iteration)"
+    echo "  $CODE_DIR/             (code, rsynced)"
+    echo "  $CODE_DIR/logs/        (training logs)"
+    echo "  $CODE_DIR/checkpoints/ (model checkpoints)"
+    echo "  $CODE_DIR/wandb_runs/  (offline WandB runs)"
     echo ""
     echo "Work storage ($WORK):"
-    echo "  $WORK/containers/          (Singularity .sif image)"
-    echo "  $WORK/data/calvin/         (CALVIN datasets)"
-    echo "  $WORK/data/libero/         (LIBERO datasets)"
-    echo "  $WORK/hf_cache/            (HuggingFace model cache)"
+    echo "  $VENV_DIR/             (Python venv)"
+    echo "  $WORK/data/calvin/     (CALVIN datasets)"
+    echo "  $WORK/data/libero/     (LIBERO datasets)"
+    echo "  $HF_CACHE/             (HuggingFace model cache)"
     echo ""
 
-    # Sync code for bind-mount iteration
-    echo "Syncing conf/ and flower/ to fast storage for bind-mount iteration..."
-    rsync -av --delete "$PROJECT_ROOT/conf/" "$PROJECT_FAST/conf/"
-    rsync -av --delete "$PROJECT_ROOT/flower/" "$PROJECT_FAST/flower/"
+    # Sync entire project to fast storage
+    echo "Syncing project to fast storage..."
+    rsync -av --delete \
+        --exclude='.git' \
+        --exclude='dataset' \
+        --exclude='logs' \
+        --exclude='checkpoints' \
+        --exclude='wandb_runs' \
+        "$PROJECT_ROOT/" "$CODE_DIR/"
 
-    echo ""
     echo "=== Directory structure ready ==="
+}
+
+# ==============================================================================
+# Step: venv - Create Python venv and install all dependencies
+# ==============================================================================
+setup_venv() {
+    echo "=== [2] Setting up Python virtual environment ==="
+
+    module purge
+    module load profile/deeplrn
+    module load python/3.11.7
+    module load cuda/12.1
+
+    if [[ ! -d "$VENV_DIR" ]]; then
+        echo "Creating venv at $VENV_DIR..."
+        python3 -m venv "$VENV_DIR"
+    else
+        echo "Venv already exists at $VENV_DIR"
+    fi
+
+    source "$VENV_DIR/bin/activate"
+    cd "$CODE_DIR"
+
+    echo "Installing pip dependencies..."
+    pip install --upgrade pip setuptools wheel
+
+    # Install main requirements
+    pip install -r requirements_leonardo.txt
+
+    # Install submodules as editable packages
+    echo "Installing tacto..."
+    cd "$CODE_DIR/calvin_env/tacto"
+    pip install -e .
+
+    echo "Installing calvin_env..."
+    cd "$CODE_DIR/calvin_env"
+    pip install -e .
+
+    echo "Installing LIBERO..."
+    cd "$CODE_DIR/LIBERO"
+    pip install -r requirements.txt
+    pip install -e .
+
+    echo "Installing pyhash (needs older setuptools to build)..."
+    cd "$CODE_DIR/pyhash-0.9.3"
+    pip install setuptools==57.5.0
+    python setup.py build
+    python setup.py install
+    # Restore modern setuptools
+    pip install --upgrade setuptools
+
+    echo "Installing flower_vla_calvin..."
+    cd "$CODE_DIR"
+    pip install -e .
+
+    # Pin versions that get overwritten by LIBERO's old requirements
+    pip install numpy~=1.23 transformers==4.46.3 wandb --upgrade
+
+    # Create LIBERO config file
+    LIBERO_CONFIG_DIR="$HOME/.libero"
+    mkdir -p "$LIBERO_CONFIG_DIR"
+    cat > "$LIBERO_CONFIG_DIR/config.yaml" << EOF
+benchmark_root: $CODE_DIR/LIBERO/libero/libero
+bddl_files: $CODE_DIR/LIBERO/libero/libero/bddl_files
+init_states: $CODE_DIR/LIBERO/libero/libero/init_files
+datasets: $WORK/data/libero
+assets: $CODE_DIR/LIBERO/libero/libero/assets
+EOF
+    echo "LIBERO config written to $LIBERO_CONFIG_DIR/config.yaml"
+
     echo ""
-    echo "Container setup (choose one):"
-    echo "  Option A - Pull from registry:"
-    echo "    singularity pull --dir $WORK/containers/ docker://ghcr.io/<USER>/flower_vla_calvin:latest"
-    echo "    mv $WORK/containers/flower_vla_calvin_latest.sif $SIF"
-    echo ""
-    echo "  Option B - Build locally, then rsync:"
-    echo "    # On your local machine:"
-    echo "    singularity build flower_vla_calvin.sif docker-daemon://flower_vla_calvin:latest"
-    echo "    rsync -avP flower_vla_calvin.sif leonardo:$WORK/containers/"
-    echo ""
+    echo "=== Venv ready ==="
 }
 
 # ==============================================================================
 # Step: calvin - Download and preprocess CALVIN
 # ==============================================================================
 setup_calvin() {
-    echo "=== Downloading CALVIN dataset ==="
+    echo "=== [3] Downloading CALVIN dataset ==="
 
     CALVIN_DIR="$WORK/data/calvin"
     cd "$CALVIN_DIR"
 
-    # Download task_D_D (single environment, ~7GB)
     if [[ -d "$CALVIN_DIR/task_D_D" ]]; then
         echo "task_D_D already exists, skipping download"
     else
@@ -123,20 +180,12 @@ setup_calvin() {
         echo "Downloaded task_D_D to $CALVIN_DIR/task_D_D"
     fi
 
-    # Check container exists for preprocessing
-    if [[ ! -f "$SIF" ]]; then
-        echo ""
-        echo "WARNING: Container not found at $SIF"
-        echo "Cannot run preprocessing. Transfer the container first, then re-run:"
-        echo "  $0 calvin"
-        return 1
-    fi
-
-    # Preprocess: extract rel_actions (required for use_extracted_rel_actions=true)
+    # Preprocess: extract rel_actions
     echo ""
     echo "Preprocessing CALVIN data (extracting rel_actions)..."
-    run_in_container python /workspace/flower_vla_calvin/preprocess/extract_by_key.py \
-        -i /workspace/flower_vla_calvin/dataset \
+    source "$VENV_DIR/bin/activate"
+    python "$CODE_DIR/preprocess/extract_by_key.py" \
+        -i "$CALVIN_DIR" \
         --in_task task_D_D \
         --in_split all \
         -k rel_actions
@@ -149,25 +198,15 @@ setup_calvin() {
 # Step: libero - Download LIBERO datasets
 # ==============================================================================
 setup_libero() {
-    echo "=== Downloading LIBERO datasets ==="
+    echo "=== [4] Downloading LIBERO datasets ==="
 
-    if [[ ! -f "$SIF" ]]; then
-        echo "ERROR: Container not found at $SIF"
-        echo "LIBERO download requires the container (needs HuggingFace libraries)"
-        return 1
-    fi
+    source "$VENV_DIR/bin/activate"
 
-    # Download libero_spatial (default benchmark)
     echo "Downloading libero_spatial..."
-    run_in_container bash -c "
-        cd /workspace/flower_vla_calvin/LIBERO && \
-        python benchmark_scripts/download_libero_datasets.py \
-            --datasets libero_spatial --use-huggingface
-    "
+    cd "$CODE_DIR/LIBERO"
+    python benchmark_scripts/download_libero_datasets.py \
+        --datasets libero_spatial --use-huggingface
 
-    echo ""
-    echo "To download additional benchmarks, run inside container:"
-    echo "  libero_goal, libero_object, libero_10, libero_90"
     echo ""
     echo "=== LIBERO setup complete ==="
 }
@@ -176,17 +215,14 @@ setup_libero() {
 # Step: hf_cache - Pre-cache HuggingFace models
 # ==============================================================================
 setup_hf_cache() {
-    echo "=== Pre-caching HuggingFace models ==="
+    echo "=== [5] Pre-caching HuggingFace models ==="
 
-    if [[ ! -f "$SIF" ]]; then
-        echo "ERROR: Container not found at $SIF"
-        return 1
-    fi
-
-    run_in_container python /workspace/flower_vla_calvin/scripts/leonardo/download_hf_models.py
+    source "$VENV_DIR/bin/activate"
+    export HF_HOME="$HF_CACHE"
+    python "$CODE_DIR/scripts/leonardo/download_hf_models.py"
 
     echo ""
-    echo "=== HuggingFace cache ready at $WORK/hf_cache/ ==="
+    echo "=== HuggingFace cache ready at $HF_CACHE/ ==="
 }
 
 # ==============================================================================
@@ -195,6 +231,9 @@ setup_hf_cache() {
 case "$STEP" in
     dirs)
         setup_dirs
+        ;;
+    venv)
+        setup_venv
         ;;
     calvin)
         setup_calvin
@@ -208,23 +247,25 @@ case "$STEP" in
     all)
         setup_dirs
         echo ""
-        if [[ -f "$SIF" ]]; then
-            setup_calvin
-            echo ""
-            setup_libero
-            echo ""
-            setup_hf_cache
-        else
-            echo "Container not found at $SIF"
-            echo "Transfer the container first, then re-run to complete data setup:"
-            echo "  $0 calvin"
-            echo "  $0 libero"
-            echo "  $0 hf_cache"
-        fi
+        setup_venv
+        echo ""
+        setup_calvin
+        echo ""
+        setup_libero
+        echo ""
+        setup_hf_cache
+        echo ""
+        echo "=== All setup complete ==="
+        echo ""
+        echo "Next steps:"
+        echo "  1. Set your SLURM account:"
+        echo "     sed -i 's/<YOUR_ACCOUNT>/your_account/g' $CODE_DIR/scripts/leonardo/sbatch_*.sh"
+        echo "  2. Run a debug job:"
+        echo "     sbatch $CODE_DIR/scripts/leonardo/sbatch_debug.sh libero"
         ;;
     *)
         echo "Unknown step: $STEP"
-        echo "Usage: $0 [dirs|calvin|libero|hf_cache|all]"
+        echo "Usage: $0 [dirs|venv|calvin|libero|hf_cache|all]"
         exit 1
         ;;
 esac

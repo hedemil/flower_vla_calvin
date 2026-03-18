@@ -1,0 +1,65 @@
+# ==============================================================================
+# Requirements for Leonardo HPC (venv-based install)
+#
+# Install order matters — PyTorch first, then submodules, then overrides.
+# Run: pip install -r requirements_leonardo.txt
+# ==============================================================================
+
+# --- PyTorch (CUDA 12.1, matches Leonardo cuda/12.1 module) ---
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch==2.2.2+cu121
+torchvision
+torchaudio
+
+# --- MuJoCo + rendering ---
+mujoco==2.3.7
+glfw
+pillow
+imageio
+imageio-ffmpeg
+moviepy
+
+# --- Core ML ---
+pytorch-lightning==2.0.8
+transformers==4.46.3
+sentence-transformers
+einops
+einops_exts
+timm
+torchsde
+torchdiffeq
+
+# --- Hydra ---
+hydra-core>=1.1.1
+hydra-colorlog
+omegaconf
+
+# --- Utilities ---
+numpy~=1.23
+scipy
+matplotlib
+opencv-python
+ftfy
+gitpython
+tqdm
+termcolor
+plotly
+wandb
+hf_transfer
+cloudpickle
+pandas
+numba
+numpy-quaternion
+
+# --- LIBERO deps ---
+easydict
+robomimic==0.2.0
+robosuite==1.4.0
+bddl==1.0.1
+gym==0.25.2
+
+# --- tacto deps ---
+pybullet
+pyrender
+urdfpy
+pyopengl @ git+https://github.com/mmatl/pyopengl.git@76d1261adee2d3fd99b418e75b0416bb7d2865e6
