@@ -4,7 +4,6 @@ from typing import Dict, Tuple, Union
 
 import numpy as np
 from omegaconf import DictConfig
-import pyhash
 import torch
 from torch.utils.data import Dataset
 
@@ -17,7 +16,14 @@ from flower.datasets.utils.episode_utils import (
     process_state,
 )
 
-hasher = pyhash.fnv1_32()
+def _fnv1_32(data):
+    """Pure-Python FNV-1 32-bit hash."""
+    h = 0x811C9DC5
+    for b in data if isinstance(data, bytes) else str(data).encode():
+        h = ((h * 0x01000193) ^ b) & 0xFFFFFFFF
+    return h
+
+hasher = _fnv1_32
 logger = logging.getLogger(__name__)
 
 

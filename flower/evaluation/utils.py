@@ -8,13 +8,19 @@ import cv2
 import hydra
 import numpy as np
 from omegaconf import OmegaConf
-import pyhash
 import torch
 from hydra.core.global_hydra import GlobalHydra
 
 from flower.utils.utils import add_text, format_sftp_path
 
-hasher = pyhash.fnv1_32()
+def _fnv1_32(data):
+    """Pure-Python FNV-1 32-bit hash."""
+    h = 0x811C9DC5
+    for b in data if isinstance(data, bytes) else str(data).encode():
+        h = ((h * 0x01000193) ^ b) & 0xFFFFFFFF
+    return h
+
+hasher = _fnv1_32
 logger = logging.getLogger(__name__)
 
 

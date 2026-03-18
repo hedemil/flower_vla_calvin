@@ -135,7 +135,7 @@ setup_venv() {
     pip install -r requirements_leonardo.txt
 
     # Check submodules are present (rsync them if git submodule update fails)
-    for subdir in calvin_env/tacto calvin_env LIBERO pyhash-0.9.3; do
+    for subdir in calvin_env/tacto calvin_env LIBERO; do
         if [[ ! -f "$CODE_DIR/$subdir/setup.py" ]]; then
             echo "ERROR: $subdir not found at $CODE_DIR/$subdir/"
             echo "  Rsync from your local machine:"
@@ -156,14 +156,6 @@ setup_venv() {
     echo "Installing LIBERO..."
     cd "$CODE_DIR/LIBERO"
     pip install --no-deps -e .
-
-    echo "Installing pyhash (needs older setuptools to build)..."
-    cd "$CODE_DIR/pyhash-0.9.3"
-    pip install setuptools==57.5.0
-    python setup.py build
-    python setup.py install
-    # Restore modern setuptools
-    pip install --upgrade setuptools
 
     echo "Installing flower_vla_calvin..."
     cd "$CODE_DIR"
