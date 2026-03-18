@@ -512,6 +512,10 @@ class MeanFlowerVLA(pl.LightningModule):
 
         # Log metrics
         self._log_training_metrics(total_loss, action_loss, total_bs, losses_dict)
+        logger.info("Training step returns action_loss = action_loss + act_loss (in MeanFlow act_loss = adaptive loss)")
+        logger.info(f"Batch {batch_idx}: loss={total_loss:.4f}, action_loss={action_loss:.4f}")
+        logger.info("Debug - MeanFlow Loss Components:")
+        logger.info(f"act_loss={act_loss:.4f}, raw_mse={losses_dict['raw_mse']:.4f}, v_loss={losses_dict['v_loss']:.4f}, dudt_norm={losses_dict['dudt_norm']:.4f}, cos_u_utgt={losses_dict['cos_u_utgt']:.4f}, cos_u_v={losses_dict['cos_u_v']:.4f}")
 
         # Optimization step
         # opt.zero_grad()
