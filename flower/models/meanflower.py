@@ -467,8 +467,8 @@ class MeanFlowerVLA(pl.LightningModule):
 
         # Log metrics
         self._log_training_metrics(total_loss, action_loss, total_bs, losses_dict)
-        if self.global_step % 1000 == 0:
-            logger.info(f"Step {self.global_step} | loss={total_loss:.4f}, action_loss={action_loss:.4f}, "
+        if self.global_rank == 0 and batch_idx % 1000 == 0:
+            logger.info(f"Step {self.global_step} (batch {batch_idx}) | loss={total_loss:.4f}, action_loss={action_loss:.4f}, "
                         f"raw_mse={losses_dict['raw_mse']:.4f}, v_loss={losses_dict['v_loss']:.4f}, "
                         f"dudt_norm={losses_dict['dudt_norm']:.4f}, cos_u_utgt={losses_dict['cos_u_utgt']:.4f}, "
                         f"cos_u_v={losses_dict['cos_u_v']:.4f}")
@@ -520,7 +520,7 @@ class MeanFlowerVLA(pl.LightningModule):
         # Sample t and r with constraint t >= r
         t, r = self.sample_tr(b)
 
-        if self.global_step % 1000 == 0:
+        if self.global_rank == 0 and self.trainer.fit_loop.total_batch_idx % 1000 == 0:
             logger.info(f"Step {self.global_step} | t: mean={t.mean().item():.4f}, std={t.std().item():.4f}, min={t.min().item():.4f}, max={t.max().item():.4f}")
             logger.info(f"Step {self.global_step} | r: mean={r.mean().item():.4f}, std={r.std().item():.4f}, min={r.min().item():.4f}, max={r.max().item():.4f}")
 
