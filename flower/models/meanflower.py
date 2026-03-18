@@ -39,7 +39,6 @@ class MeanFlowerVLA(pl.LightningModule):
         vlm_path: str = "microsoft/Florence-2-large",
         freeze_florence: bool = False,
         freeze_vision_tower: bool = False,
-        freeze_embeddings_only: bool = False,
         vlm_prompt_style: str = 'default',
         token_dropout: float = 0.2,
         cfg_dropout: float = 0.1,
@@ -124,7 +123,7 @@ class MeanFlowerVLA(pl.LightningModule):
         self.target_modality = "actions"
 
         # Setup VLM
-        self._setup_vlm(vlm_path, freeze_vision_tower, freeze_florence, freeze_embeddings_only)
+        self._setup_vlm(vlm_path, freeze_vision_tower, freeze_florence)
         hidden_dim = self.vlm.config.text_config.d_model
         self.vlm_latent_dim = hidden_dim
         self.action_type_adaln = action_type_adaln
