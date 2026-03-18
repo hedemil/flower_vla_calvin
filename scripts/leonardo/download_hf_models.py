@@ -1,8 +1,9 @@
 """
 Pre-cache HuggingFace models for offline use on Leonardo compute nodes.
 
-Run inside Singularity on the login node (which has internet):
-    singularity exec ... python scripts/leonardo/download_hf_models.py
+Run on the login node (which has internet):
+    export HF_HOME=$WORK/hf_cache
+    python scripts/leonardo/download_hf_models.py
 
 Downloads Florence-2-large (model + processor) to the HF cache directory.
 """
@@ -14,7 +15,7 @@ import sys
 def main():
     cache_dir = os.environ.get(
         "HF_HOME",
-        os.path.join(os.environ.get("HOME", "/appuser"), ".cache", "huggingface"),
+        os.path.join(os.environ.get("HOME", ""), ".cache", "huggingface"),
     )
     print(f"HuggingFace cache directory: {cache_dir}")
 

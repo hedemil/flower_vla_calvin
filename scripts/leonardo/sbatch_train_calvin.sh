@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# CALVIN training on Leonardo HPC (CINECA)
+# CALVIN training on Leonardo HPC (venv-based, no container)
 #
 # Usage:
 #   sbatch scripts/leonardo/sbatch_train_calvin.sh [hydra overrides...]
@@ -31,18 +31,30 @@ set -euo pipefail
 FAST="${LEONARDO_FAST:-${FAST:?Set LEONARDO_FAST or FAST}}"
 WORK="${LEONARDO_WORK:-${WORK:?Set LEONARDO_WORK or WORK}}"
 
-PROJECT_FAST="$FAST/flower_vla_calvin"
-SIF="$WORK/containers/flower_vla_calvin.sif"
+CODE_DIR="$FAST/flower_vla_calvin"
+VENV_DIR="$WORK/venvs/flower_vla_calvin"
+DATA_DIR="$WORK/data/calvin"
+HF_CACHE="$WORK/hf_cache"
+WANDB_DIR="$CODE_DIR/wandb_runs"
 
 # ---------------------
-# Environment variables for compute node (no internet)
+# Load modules and activate venv
+# ---------------------
+module purge
+module load profile/deeplrn
+module load cuda/12.1
+source "$VENV_DIR/bin/activate"
+
+# ---------------------
+# Environment variables (no internet on compute nodes)
 # ---------------------
 export TRANSFORMERS_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
 export HF_HUB_OFFLINE=1
+export HF_HOME="$HF_CACHE"
 
 export WANDB_MODE=offline
-export WANDB_DIR="$PROJECT_FAST/wandb_runs"
+export WANDB_DIR="$WANDB_DIR"
 
 export MUJOCO_GL=egl
 export PYOPENGL_PLATFORM=egl
@@ -61,6 +73,20 @@ export CUDA_DEVICE_ORDER=PCI_BUS_ID
 export TOKENIZERS_PARALLELISM=true
 
 # ---------------------
+# Verify prerequisites
+# ---------------------
+if [[ ! -d "$VENV_DIR" ]]; then
+    echo "ERROR: Venv not found: $VENV_DIR"
+    echo "  Run setup_leonardo.sh first."
+    exit 1
+fi
+
+if [[ ! -d "$DATA_DIR/task_ABC_D" ]]; then
+    echo "ERROR: CALVIN data not found: $DATA_DIR/task_ABC_D"
+    exit 1
+fi
+
+# ---------------------
 # Logging
 # ---------------------
 echo "============================================"
@@ -69,54 +95,32 @@ echo "============================================"
 echo "Job ID:        $SLURM_JOB_ID"
 echo "Node:          $(hostname)"
 echo "GPUs:          $SLURM_GPUS_ON_NODE"
-echo "Container:     $SIF"
+echo "Code:          $CODE_DIR"
+echo "Venv:          $VENV_DIR"
+echo "Data:          $DATA_DIR"
 echo "MASTER_ADDR:   $MASTER_ADDR"
 echo "MASTER_PORT:   $MASTER_PORT"
+echo "Python:        $(which python)"
+echo "PyTorch:       $(python -c 'import torch; print(torch.__version__)')"
+echo "CUDA:          $(python -c 'import torch; print(torch.cuda.is_available())')"
 echo "Hydra args:    $*"
 echo "============================================"
 
-# ---------------------
-# Ensure wandb dir exists
-# ---------------------
 mkdir -p "$WANDB_DIR"
 
 # ---------------------
-# Run training inside Singularity
+# Launch training
 # ---------------------
-singularity exec --nv \
-    --no-home \
-    --env HOME=/appuser \
-    --env TRANSFORMERS_OFFLINE=$TRANSFORMERS_OFFLINE \
-    --env HF_DATASETS_OFFLINE=$HF_DATASETS_OFFLINE \
-    --env HF_HUB_OFFLINE=$HF_HUB_OFFLINE \
-    --env WANDB_MODE=$WANDB_MODE \
-    --env WANDB_DIR=/workspace/flower_vla_calvin/wandb_runs \
-    --env MUJOCO_GL=$MUJOCO_GL \
-    --env PYOPENGL_PLATFORM=$PYOPENGL_PLATFORM \
-    --env NCCL_NET=$NCCL_NET \
-    --env NCCL_IB_HCA=$NCCL_IB_HCA \
-    --env NCCL_NET_GDR_LEVEL=$NCCL_NET_GDR_LEVEL \
-    --env MASTER_ADDR=$MASTER_ADDR \
-    --env MASTER_PORT=$MASTER_PORT \
-    --env PYTORCH_CUDA_ALLOC_CONF=$PYTORCH_CUDA_ALLOC_CONF \
-    --env CUDA_DEVICE_ORDER=$CUDA_DEVICE_ORDER \
-    --env TOKENIZERS_PARALLELISM=$TOKENIZERS_PARALLELISM \
-    --bind "$WORK/data/calvin:/workspace/flower_vla_calvin/dataset" \
-    --bind "$PROJECT_FAST/checkpoints:/workspace/flower_vla_calvin/checkpoints" \
-    --bind "$PROJECT_FAST/logs:/workspace/flower_vla_calvin/logs" \
-    --bind "$WORK/hf_cache:/appuser/.cache/huggingface" \
-    --bind "$PROJECT_FAST/conf:/workspace/flower_vla_calvin/conf" \
-    --bind "$PROJECT_FAST/flower:/workspace/flower_vla_calvin/flower" \
-    --bind "$PROJECT_FAST/wandb_runs:/workspace/flower_vla_calvin/wandb_runs" \
-    "$SIF" \
-    python /workspace/flower_vla_calvin/flower/training_calvin.py \
-        devices=4 \
-        log_dir=/workspace/flower_vla_calvin/logs \
-        root_data_dir=/workspace/flower_vla_calvin/dataset/task_D_D \
-        use_extracted_rel_actions=true \
-        benchmark_name=calvin_d \
-        model=meanflower \
-        "$@"
+cd "$CODE_DIR"
+
+python flower/training_calvin.py \
+    devices=4 \
+    log_dir="$CODE_DIR/logs" \
+    root_data_dir="$DATA_DIR/task_ABC_D" \
+    use_extracted_rel_actions=true \
+    benchmark_name=calvin_abcd \
+    model=meanflower \
+    "$@"
 
 echo ""
 echo "Job $SLURM_JOB_ID finished at $(date)"

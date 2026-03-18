@@ -76,15 +76,31 @@ setup_dirs() {
     echo "  $HF_CACHE/             (HuggingFace model cache)"
     echo ""
 
-    # Sync entire project to fast storage
-    echo "Syncing project to fast storage..."
-    rsync -av --delete \
-        --exclude='.git' \
-        --exclude='dataset' \
-        --exclude='logs' \
-        --exclude='checkpoints' \
-        --exclude='wandb_runs' \
-        "$PROJECT_ROOT/" "$CODE_DIR/"
+    # Sync entire project to fast storage (or check if already cloned)
+    if [[ -f "$CODE_DIR/setup.py" ]]; then
+        echo "Code already exists at $CODE_DIR"
+        echo "Syncing latest changes..."
+        rsync -av --delete \
+            --exclude='.git' \
+            --exclude='dataset' \
+            --exclude='logs' \
+            --exclude='checkpoints' \
+            --exclude='wandb_runs' \
+            "$PROJECT_ROOT/" "$CODE_DIR/"
+    else
+        echo "Code not found at $CODE_DIR"
+        echo "Clone the repo with submodules:"
+        echo "  git clone --recurse-submodules <repo_url> $CODE_DIR"
+        echo "Or rsync from local:"
+        echo "  rsync -av --exclude='.git' $PROJECT_ROOT/ $CODE_DIR/"
+    fi
+
+    # Ensure submodules are present
+    if [[ ! -f "$CODE_DIR/calvin_env/setup.py" ]] || [[ ! -f "$CODE_DIR/LIBERO/setup.py" ]]; then
+        echo ""
+        echo "WARNING: Submodules not found. If you used git clone, run:"
+        echo "  cd $CODE_DIR && git submodule update --init --recursive"
+    fi
 
     echo "=== Directory structure ready ==="
 }
@@ -170,14 +186,14 @@ setup_calvin() {
     CALVIN_DIR="$WORK/data/calvin"
     cd "$CALVIN_DIR"
 
-    if [[ -d "$CALVIN_DIR/task_D_D" ]]; then
-        echo "task_D_D already exists, skipping download"
+    if [[ -d "$CALVIN_DIR/task_ABC_D" ]]; then
+        echo "task_ABC_D already exists, skipping download"
     else
-        echo "Downloading task_D_D..."
-        wget -q --show-progress http://calvin.cs.uni-freiburg.de/dataset/task_D_D.zip
-        unzip -q task_D_D.zip
-        rm task_D_D.zip
-        echo "Downloaded task_D_D to $CALVIN_DIR/task_D_D"
+        echo "Downloading task_ABC_D..."
+        wget -q --show-progress http://calvin.cs.uni-freiburg.de/dataset/task_ABC_D.zip
+        unzip -q task_ABC_D.zip
+        rm task_ABC_D.zip
+        echo "Downloaded task_ABC_D to $CALVIN_DIR/task_ABC_D"
     fi
 
     # Preprocess: extract rel_actions
@@ -186,7 +202,7 @@ setup_calvin() {
     source "$VENV_DIR/bin/activate"
     python "$CODE_DIR/preprocess/extract_by_key.py" \
         -i "$CALVIN_DIR" \
-        --in_task task_D_D \
+        --in_task task_ABC_D \
         --in_split all \
         -k rel_actions
 
@@ -202,10 +218,10 @@ setup_libero() {
 
     source "$VENV_DIR/bin/activate"
 
-    echo "Downloading libero_spatial..."
+    echo "Downloading libero_goal libero_spatial libero_object libero_100..."
     cd "$CODE_DIR/LIBERO"
     python benchmark_scripts/download_libero_datasets.py \
-        --datasets libero_spatial --use-huggingface
+        --datasets all --use-huggingface
 
     echo ""
     echo "=== LIBERO setup complete ==="
