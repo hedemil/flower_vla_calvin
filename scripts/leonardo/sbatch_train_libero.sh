@@ -39,7 +39,7 @@ WORK="${LEONARDO_WORK:-${WORK:?Set LEONARDO_WORK or WORK}}"
 CODE_DIR="$FAST/flower_vla_calvin"
 VENV_DIR="$WORK/venvs/flower_vla_calvin"
 DATA_DIR="$WORK/data/libero"
-HF_CACHE="$WORK/hf_cache"
+HF_CACHE="$WORK/ehed0000/hf_cache"
 WANDB_DIR="$CODE_DIR/wandb_runs"
 
 # WandB run name: model_dataset_date

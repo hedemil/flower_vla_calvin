@@ -49,7 +49,7 @@ fi
 
 CODE_DIR="$FAST/flower_vla_calvin"
 VENV_DIR="$WORK/venvs/flower_vla_calvin"
-HF_CACHE="$WORK/hf_cache"
+HF_CACHE="$WORK/ehed0000/hf_cache"
 
 STEP="${1:-all}"
 
