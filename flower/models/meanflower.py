@@ -512,6 +512,10 @@ class MeanFlowerVLA(pl.LightningModule):
 
         # Log metrics
         self._log_training_metrics(total_loss, action_loss, total_bs, losses_dict)
+        logger.info("Training step returns action_loss = action_loss + act_loss (in MeanFlow act_loss = adaptive loss)")
+        logger.info(f"Batch {batch_idx}: loss={total_loss:.4f}, action_loss={action_loss:.4f}")
+        logger.info("Debug - MeanFlow Loss Components:")
+        logger.info(f"act_loss={act_loss:.4f}, raw_mse={losses_dict['raw_mse']:.4f}, v_loss={losses_dict['v_loss']:.4f}, dudt_norm={losses_dict['dudt_norm']:.4f}, cos_u_utgt={losses_dict['cos_u_utgt']:.4f}, cos_u_v={losses_dict['cos_u_v']:.4f}")
 
         # Optimization step
         # opt.zero_grad()
@@ -751,35 +755,8 @@ class MeanFlowerVLA(pl.LightningModule):
         dtdt = torch.ones_like(texp)
         drdt = torch.zeros_like(rexp)
 
-        # # Compute u and du/dt using JVP.
-        # # Monkey-patch nn.Linear and RmsNorm to cast weights to input dtype
-        # # so dual tensors with promoted tangents don't cause mixed-dtype crashes.
-        # _orig_linear_forward = nn.Linear.forward
-        # _orig_rmsnorm_forward = RmsNorm.forward
-
-        # def _jvp_safe_linear_forward(self, input):
-        #     return F.linear(
-        #         input,
-        #         self.weight.to(input.dtype),
-        #         self.bias.to(input.dtype) if self.bias is not None else None,
-        #     )
-
-        # def _jvp_safe_rmsnorm_forward(self, x):
-        #     return F.rms_norm(x, self.normalized_shape, self.weight.to(x.dtype), self.eps)
-
         with torch.amp.autocast("cuda", enabled=False):
-            # nn.Linear.forward = _jvp_safe_linear_forward
-            # RmsNorm.forward = _jvp_safe_rmsnorm_forward
-            # try:
-            #     u_pred, dudt = torch.func.jvp(
-            #         u_func,
-            #         (z, texp, rexp),
-            #         (v, dtdt, drdt)
-            #     )
-            # finally:
-            #     nn.Linear.forward = _orig_linear_forward
-            #     RmsNorm.forward = _orig_rmsnorm_forward
-
+           
             u_pred, dudt = torch.func.jvp(
                 u_func,
                 (z, texp, rexp),
@@ -790,14 +767,6 @@ class MeanFlowerVLA(pl.LightningModule):
             h = (texp - rexp).clamp(min=0.0, max=1.0)
             u_tgt = (v - h * dudt).detach()
 
-            # Build valid mask
-            # valid_mask = torch.zeros_like(actions, dtype=torch.bool)
-            # for action_name, action_idx in self.action_space_index.action_spaces.items():
-            #     mask = (action_type == action_idx)
-            #     if mask.any():
-            #         adim = self.action_space_index.get_action_dim(action_idx)
-            #         mask_expanded = mask.view(-1, 1, 1).expand(-1, actions.size(1), adim).to(device)
-            #         valid_mask[mask, :, :adim] = mask_expanded[mask]
 
             # Compute loss only over valid dimensions
             diff = u_pred - u_tgt
@@ -839,16 +808,6 @@ class MeanFlowerVLA(pl.LightningModule):
             cos_u_v = F.cosine_similarity(
                 valid_u.unsqueeze(0), valid_v.unsqueeze(0), dim=-1
             ).mean()
-            # Per-timestep-bucket v_loss (where does the model struggle?)
-            t_flat = t.view(-1)
-            low_mask = t_flat < 0.3
-            mid_mask = (t_flat >= 0.3) & (t_flat < 0.7)
-            high_mask = t_flat >= 0.7
-            u_v_diff = (u_pred - v) ** 2
-            u_v_per_sample = u_v_diff.sum(dim=(1, 2))
-            vloss_t_low = u_v_per_sample[low_mask].mean() if low_mask.any() else torch.tensor(0.0)
-            vloss_t_mid = u_v_per_sample[mid_mask].mean() if mid_mask.any() else torch.tensor(0.0)
-            vloss_t_high = u_v_per_sample[high_mask].mean() if high_mask.any() else torch.tensor(0.0)
 
         # Check for NaN/Inf in outputs
         if torch.isnan(u_pred).any() or torch.isinf(u_pred).any():
@@ -878,9 +837,6 @@ class MeanFlowerVLA(pl.LightningModule):
             "u_tgt_norm": u_tgt_norm.item(),
             "cos_u_utgt": cos_u_utgt.item(),
             "cos_u_v": cos_u_v.item(),
-            "vloss_t_low": vloss_t_low.item(),
-            "vloss_t_mid": vloss_t_mid.item(),
-            "vloss_t_high": vloss_t_high.item(),
             "h_mean": h.mean().item(),
         }
 
