@@ -155,8 +155,7 @@ setup_venv() {
 
     echo "Installing LIBERO..."
     cd "$CODE_DIR/LIBERO"
-    pip install -r requirements.txt
-    pip install -e .
+    pip install --no-deps -e .
 
     echo "Installing pyhash (needs older setuptools to build)..."
     cd "$CODE_DIR/pyhash-0.9.3"
