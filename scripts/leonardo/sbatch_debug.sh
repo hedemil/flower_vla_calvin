@@ -10,7 +10,6 @@
 #SBATCH --job-name=flower-debug
 #SBATCH --partition=boost_usr_prod
 #SBATCH --qos=boost_qos_dbg
-#SBATCH --account=<YOUR_ACCOUNT>
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-node=4

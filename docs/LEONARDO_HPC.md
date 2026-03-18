@@ -21,9 +21,7 @@ Guide for running FLOWER VLA training on Leonardo using a Python venv and SLURM.
 export LEONARDO_FAST=/leonardo_scratch/fast/<YOUR_ACCOUNT>
 export LEONARDO_WORK=/leonardo_work/<YOUR_ACCOUNT>
 
-# Clone the repo (with submodules) to fast storage
-git clone --recurse-submodules <repo_url> $LEONARDO_FAST/flower_vla_calvin
-# or rsync from local:
+# Rsync the repo (including submodules) to fast storage
 rsync -av --exclude='.git' --exclude='dataset' --exclude='logs' \
     ./flower_vla_calvin/ leonardo:$FAST/flower_vla_calvin/
 

@@ -13,7 +13,6 @@
 
 #SBATCH --job-name=flower-libero
 #SBATCH --partition=boost_usr_prod
-#SBATCH --account=<YOUR_ACCOUNT>
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-node=4

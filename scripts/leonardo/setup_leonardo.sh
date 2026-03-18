@@ -98,8 +98,10 @@ setup_dirs() {
     # Ensure submodules are present
     if [[ ! -f "$CODE_DIR/calvin_env/setup.py" ]] || [[ ! -f "$CODE_DIR/LIBERO/setup.py" ]]; then
         echo ""
-        echo "WARNING: Submodules not found. If you used git clone, run:"
-        echo "  cd $CODE_DIR && git submodule update --init --recursive"
+        echo "WARNING: Submodules (calvin_env, LIBERO) not found."
+        echo "  Rsync them from your local machine:"
+        echo "    rsync -av calvin_env/ leonardo:$CODE_DIR/calvin_env/"
+        echo "    rsync -av LIBERO/ leonardo:$CODE_DIR/LIBERO/"
     fi
 
     echo "=== Directory structure ready ==="
@@ -131,6 +133,16 @@ setup_venv() {
 
     # Install main requirements
     pip install -r requirements_leonardo.txt
+
+    # Check submodules are present (rsync them if git submodule update fails)
+    for subdir in calvin_env/tacto calvin_env LIBERO pyhash-0.9.3; do
+        if [[ ! -f "$CODE_DIR/$subdir/setup.py" ]]; then
+            echo "ERROR: $subdir not found at $CODE_DIR/$subdir/"
+            echo "  Rsync from your local machine:"
+            echo "    rsync -av $subdir/ leonardo:$CODE_DIR/$subdir/"
+            exit 1
+        fi
+    done
 
     # Install submodules as editable packages
     echo "Installing tacto..."
