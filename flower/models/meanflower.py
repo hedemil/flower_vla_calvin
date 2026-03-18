@@ -81,10 +81,6 @@ class MeanFlowerVLA(pl.LightningModule):
         optimizer_type: str = "adamw",
         optimizer: DictConfig = None,
         lr_scheduler: DictConfig = None,
-        # Decoupled MeanFlow Configuration
-        encoder_depth: int = 0,           # 0 = standard MeanFlow, >0 = first N blocks use t, rest use r
-        use_combined_loss: bool = False,   # True = FM loss + MF loss per batch
-        freeze_encoder_blocks: bool = False,  # True = freeze first encoder_depth blocks
         # Pretrained weights
         load_pretrained: bool = False,
         pretrained_model_path: str = None,
@@ -157,18 +153,6 @@ class MeanFlowerVLA(pl.LightningModule):
         self.ratio = ratio
         self.register_buffer("P_mean", torch.tensor(P_mean, dtype=torch.float32))
         self.register_buffer("P_std", torch.tensor(P_std, dtype=torch.float32))
-
-        # Decoupled MeanFlow config
-        self.encoder_depth = encoder_depth
-        self.use_combined_loss = use_combined_loss
-        self.freeze_encoder_blocks = freeze_encoder_blocks
-
-        # Freeze encoder blocks if requested
-        if self.freeze_encoder_blocks and self.encoder_depth > 0:
-            for i, block in enumerate(self.dit[:self.encoder_depth]):
-                for param in block.parameters():
-                    param.requires_grad = False
-            logger.info(f"Froze first {self.encoder_depth} DiT blocks (encoder)")
 
         # State tracking
         self.rollout_step_counter = 0
@@ -253,27 +237,29 @@ class MeanFlowerVLA(pl.LightningModule):
     # === Initialization Helpers ===
 
     def _init_flags(self, **kwargs):
-        """Initialize model flags and configurations."""
+        """Initialize model flags and configurations"""
         for key, value in kwargs.items():
             setattr(self, key, value)
-
+        
         if self.vlm_prompt_style not in ["default", "feature_focused", "state_oriented"]:
             raise ValueError("Invalid VLM prompt style")
-        if self.sampling_type not in ['ln', 'pi_zero', 'loglogistic', 'uniform', 'stratified']:
-            raise ValueError(f"Invalid sampling type: {self.sampling_type}")
-
+            
         self.format_instruction = functools.partial(
-            generate_policy_prompt,
-            robot_name="Franka Panda",
-            action_space="Delta End-Effector",
-            num_arms="1",
-            prompt_style='minimal'
-        )
-
+                             generate_policy_prompt,
+                             robot_name="Franka Panda",
+                             action_space="Delta End-Effector",
+                             num_arms="1",
+                             prompt_style='minimal')
+        
+        self.use_adaln_cond = self.use_adaln_cond 
         self.use_readout_token = self.use_readout_token and self.use_adaln_cond
+        self.use_proprio = self.use_proprio 
         self.use_second_view = self.use_second_view and self.second_view_key is not None
+        self.use_cross_attn = self.use_cross_attn
         self.use_rope = self.use_rope and not self.use_nope
         self.use_nope = self.use_nope and not self.use_rope
+        self.vlm_prompt_style = self.vlm_prompt_style
+        self.return_act_chunk = False
         self.cfg_lambda = 1.0
 
     def _init_dimensions(self, **kwargs):
@@ -283,33 +269,33 @@ class MeanFlowerVLA(pl.LightningModule):
         if self.dit_dim % self.n_heads != 0:
             raise ValueError(f"dit_dim ({self.dit_dim}) must be divisible by n_heads ({self.n_heads})")
 
-    def _setup_vlm(self, vlm_path, freeze_vision_tower, freeze_florence, freeze_embeddings_only):
-        """Initialize and configure the Florence-2 VLM."""
-        logger.info(f"Loading Florence-2 from {vlm_path}")
+    def _setup_vlm(self, vlm_path: str, freeze_vision_tower: bool, freeze_florence: bool):
+        """Initialize and configure the Florence-2 VLM"""
+        print(f"Loading Florence-2 from {vlm_path}")
         REVISION = "main"
-        self.vlm = AutoModelForCausalLM.from_pretrained(
-            vlm_path, revision=REVISION, trust_remote_code=True, attn_implementation="eager"
-        )
 
+        self.vlm = AutoModelForCausalLM.from_pretrained(vlm_path, revision=REVISION, trust_remote_code=True, attn_implementation="eager")
+        
+        # Handle parameter freezing
         if freeze_florence:
             for param in self.vlm.parameters():
                 param.requires_grad = False
-        elif freeze_embeddings_only:
-            embedding_layer = self.vlm.get_input_embeddings()
-            for param in embedding_layer.parameters():
-                param.requires_grad = False
-            if hasattr(self.vlm.language_model, 'shared'):
-                for param in self.vlm.language_model.shared.parameters():
-                    param.requires_grad = False
-
-        if not freeze_vision_tower:
+        elif not freeze_vision_tower:
             for param in self.vlm.vision_tower.parameters():
                 param.requires_grad = True
 
+        # Setup processor and tokenizer
         self.processor = AutoProcessor.from_pretrained(vlm_path, revision=REVISION, trust_remote_code=True)
         self.tokenizer = self.processor.tokenizer
+        
+        # Create prompt embedding
         self.prompt_embeds = self._create_prompt_embed("<Flow>")
-        del self.vlm.language_model.model.decoder, self.vlm.language_model.lm_head
+        
+        # Remove unnecessary components
+        del self.vlm.language_model.model.decoder
+        del self.vlm.language_model.lm_head
+        
+        # Setup token dropout
         self.vlm_token_dropout = nn.Dropout(self.token_dropout)
 
     def _setup_dit_components_meanflow(
@@ -442,41 +428,22 @@ class MeanFlowerVLA(pl.LightningModule):
         }
 
     def _get_param_groups(self):
-        """Get parameter groups for optimizer with separate decoder group."""
+        """Get parameter groups for optimizer"""
         no_decay = ['bias', 'LayerNorm', 'layernorm', 'ln', 'norm']
-        decoder_params_set = set()
-        for decoder in self.action_decoders.values():
-            decoder_params_set.update(p for p in decoder.parameters())
-
-        decoder_weight_decay = self.optimizer_config.get(
-            "decoder_weight_decay", self.optimizer_config.transformer_weight_decay
-        )
-
         decay_group = []
         no_decay_group = []
-        decoder_decay_group = []
-        decoder_no_decay_group = []
-        vlm_params = set(p for p in self.vlm.parameters())
 
+        # Collect all parameters, excluding VLM if frozen
         for name, param in self.named_parameters():
-            if param.requires_grad and param not in vlm_params:
-                is_no_decay = any(nd in name.lower() for nd in no_decay)
-                if param in decoder_params_set:
-                    if is_no_decay:
-                        decoder_no_decay_group.append(param)
-                    else:
-                        decoder_decay_group.append(param)
+            if param.requires_grad:
+                if any(nd in name.lower() for nd in no_decay):
+                    no_decay_group.append(param)
                 else:
-                    if is_no_decay:
-                        no_decay_group.append(param)
-                    else:
-                        decay_group.append(param)
+                    decay_group.append(param)
 
         return [
             {"params": decay_group, "weight_decay": self.optimizer_config.transformer_weight_decay},
-            {"params": no_decay_group, "weight_decay": 0.0},
-            {"params": decoder_decay_group, "weight_decay": decoder_weight_decay},
-            {"params": decoder_no_decay_group, "weight_decay": 0.0},
+            {"params": no_decay_group, "weight_decay": 0.0}
         ]
 
     def training_step(self, batch: Dict[str, Dict], batch_idx: int) -> torch.Tensor:
@@ -501,10 +468,11 @@ class MeanFlowerVLA(pl.LightningModule):
 
         # Log metrics
         self._log_training_metrics(total_loss, action_loss, total_bs, losses_dict)
-        logger.info("Training step returns action_loss = action_loss + act_loss (in MeanFlow act_loss = adaptive loss)")
-        logger.info(f"Batch {batch_idx}: loss={total_loss:.4f}, action_loss={action_loss:.4f}")
-        logger.info("Debug - MeanFlow Loss Components:")
-        logger.info(f"act_loss={act_loss:.4f}, raw_mse={losses_dict['raw_mse']:.4f}, v_loss={losses_dict['v_loss']:.4f}, dudt_norm={losses_dict['dudt_norm']:.4f}, cos_u_utgt={losses_dict['cos_u_utgt']:.4f}, cos_u_v={losses_dict['cos_u_v']:.4f}")
+        if self.global_step % 1000 == 0:
+            logger.info(f"Step {self.global_step} | loss={total_loss:.4f}, action_loss={action_loss:.4f}, "
+                        f"raw_mse={losses_dict['raw_mse']:.4f}, v_loss={losses_dict['v_loss']:.4f}, "
+                        f"dudt_norm={losses_dict['dudt_norm']:.4f}, cos_u_utgt={losses_dict['cos_u_utgt']:.4f}, "
+                        f"cos_u_v={losses_dict['cos_u_v']:.4f}")
 
         # Optimization step
         # opt.zero_grad()
@@ -553,8 +521,9 @@ class MeanFlowerVLA(pl.LightningModule):
         # Sample t and r with constraint t >= r
         t, r = self.sample_tr(b)
 
-        logger.info(f"Sampled t: mean={t.mean().item():.4f}, std={t.std().item():.4f}, min={t.min().item():.4f}, max={t.max().item():.4f}")
-        logger.info(f"Sampled r: mean={r.mean().item():.4f}, std={r.std().item():.4f}, min={r.min().item():.4f}, max={r.max().item():.4f}")
+        if self.global_step % 1000 == 0:
+            logger.info(f"Step {self.global_step} | t: mean={t.mean().item():.4f}, std={t.std().item():.4f}, min={t.min().item():.4f}, max={t.max().item():.4f}")
+            logger.info(f"Step {self.global_step} | r: mean={r.mean().item():.4f}, std={r.std().item():.4f}, min={r.min().item():.4f}, max={r.max().item():.4f}")
 
         # Interpolate: z_t = (1 - t) * x + t * e
         texp = t.view([b] + [1] * (actions.dim() - 1)).to(dtype=default_dtype)
@@ -902,14 +871,18 @@ class MeanFlowerVLA(pl.LightningModule):
         return mod_signals
     
     def _create_prompt_embed(self, prompt_text):
-        """Create embeddings for prompt tokens."""
+        """Create embeddings for prompt tokens"""
+        # Add special token if not in vocabulary
         self.tokenizer.add_special_tokens({'additional_special_tokens': [prompt_text]})
         self.vlm.resize_token_embeddings(len(self.tokenizer))
+        
+        # Get token ID and create embedding
         prompt_token_id = self.tokenizer.convert_tokens_to_ids(prompt_text)
         prompt_embed = nn.Parameter(
-            self.vlm.get_input_embeddings()(torch.tensor(prompt_token_id)),
+            self.vlm.get_input_embeddings()(torch.tensor(prompt_token_id)), 
             requires_grad=False
         )
+    
         return prompt_embed.unsqueeze(0).unsqueeze(0)
     
     def encode_observations(self, batch: Dict) -> torch.Tensor:
