@@ -26,12 +26,12 @@ def main():
         from transformers import AutoModelForCausalLM, AutoProcessor
 
         processor = AutoProcessor.from_pretrained(
-            model_name, trust_remote_code=True, cache_dir=cache_dir
+            model_name, trust_remote_code=True
         )
         print(f"  Processor cached: {type(processor).__name__}")
 
         model = AutoModelForCausalLM.from_pretrained(
-            model_name, trust_remote_code=True, cache_dir=cache_dir
+            model_name, trust_remote_code=True
         )
         print(f"  Model cached: {type(model).__name__}")
 
