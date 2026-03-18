@@ -328,6 +328,7 @@ class MeanFlowerVLA(pl.LightningModule):
         # Set up shared conditioning components
         self.cond_linear = nn.Linear(hidden_dim, dit_dim, bias=False)
         self.t_embedder = TimestepEmbedder(dit_dim)
+        self.h_embedder = TimestepEmbedder(dit_dim)
         self.cond_norm = RmsNorm(hidden_dim)
         self.frequency_embedder = FreqEmbedder(dit_dim)
         self.action_space_embedder = ActionSpaceEmbedderParameter(
@@ -571,8 +572,8 @@ class MeanFlowerVLA(pl.LightningModule):
             # self-referential target u_tgt = v - h*du/dt creates a positive
             # feedback loop where large du/dt → large loss → large gradients
             # → even larger du/dt, causing divergence.
-            norm_eps = 0.001
-            norm_p = 0.75
+            norm_eps = 0.01
+            norm_p = 0.5
             adp_wt = (loss_per_sample.detach() + norm_eps) ** norm_p
             loss_per_sample = loss_per_sample / adp_wt
 
@@ -695,8 +696,8 @@ class MeanFlowerVLA(pl.LightningModule):
         dtype = next(self.parameters()).dtype
         z = z.to(dtype=dtype)
         t_tensor = torch.ones(b, device=device, dtype=dtype)
-        r_tensor = torch.zeros(b, device=device, dtype=dtype)
-        u = self.dit_forward_meanflow(z, t_tensor, r_tensor, cond)
+        h_tensor = torch.ones(b, device=device, dtype=dtype)  # h = t - r = 1 - 0 = 1
+        u = self.dit_forward_meanflow(z, t_tensor, h_tensor, cond)
         z = z - u
         return z.clamp(-1, 1)  
     
@@ -732,30 +733,31 @@ class MeanFlowerVLA(pl.LightningModule):
         if not self.use_rope and not self.use_nope:
             z = z + self.positional_encoding
         
-        # Process embeddings
+        # Process embeddings (h-conditioning feeds all DiT blocks, not just the decoder)
         t_emb = stateless_norm(self.t_embedder(t)) + \
+                stateless_norm(self.h_embedder(h)) + \
                 stateless_norm(frequency_embeds).squeeze(1) + \
                 stateless_norm(proprio_embeds).squeeze(1)
-        
+
         cond = self.cond_linear(self.cond_norm(cond))
-        
+
         # Set up conditioning
         if self.use_adaln_cond:
             vlm_token = cond[:, 0, :] if self.use_readout_token else cond.mean(dim=1)
             global_cond = vlm_token + t_emb
         else:
             global_cond = t_emb
-        
+
         # Setup context
         cx = z
         context = cond if self.use_cross_attn else None
-        
+
         # Get adaln signals
         if not self.action_type_adaln:
             global_adaln = self.adaln(global_cond)
         else:
             global_adaln = self.action_specific_adaln(global_cond, action_type)
-        
+
         for layer in self.dit:
             cx = layer(cx, global_cond, context=context, is_causal=True, global_adaln=global_adaln)
 
@@ -1094,7 +1096,7 @@ class MeanFlowerVLA(pl.LightningModule):
     def _logit_normal_dist(self, bz: int) -> torch.Tensor:
         """Sample from logit-normal distribution. Math in float32 for stability."""
         rnd_normal = torch.randn(
-            bz, 1, 1, 1,
+            bz,
             device=self.P_mean.device,
             dtype=torch.float32
         )
@@ -1106,7 +1108,7 @@ class MeanFlowerVLA(pl.LightningModule):
     def _uniform_dist(self, bz: int) -> torch.Tensor:
         """Sample from uniform distribution."""
         return torch.rand(
-            bz, 1, 1, 1,
+            bz,
             device=self.P_mean.device,
             dtype=next(self.parameters()).dtype
         )
@@ -1116,11 +1118,10 @@ class MeanFlowerVLA(pl.LightningModule):
         Sample timesteps t and r with constraint t >= r.
         `ratio` fraction of samples keep r != t (integral/mean-flow samples).
         The remaining (1 - ratio) fraction get r = t (instantaneous velocity).
-        Matches py-meanflow reference: ratio=0.75 → 75% integral, 25% velocity.
 
         Returns:
-            t: Sampled timesteps [B, 1, 1, 1]
-            r: Sampled timesteps [B, 1, 1, 1]
+            t: Sampled timesteps [B]
+            r: Sampled timesteps [B]
         """
         dtype = next(self.parameters()).dtype
 
@@ -1131,7 +1132,7 @@ class MeanFlowerVLA(pl.LightningModule):
         t, r = torch.maximum(t, r), torch.minimum(t, r)
 
         # With probability (1 - ratio), collapse to velocity (r = t)
-        prob = torch.rand(b, 1, 1, 1, device=self.device)
+        prob = torch.rand(b, device=self.device)
         velocity_mask = prob < (1 - self.ratio)
         r = torch.where(velocity_mask, t, r)
 
