@@ -1019,6 +1019,56 @@ class MeanFlowerVLA(pl.LightningModule):
             if mask.any():
                 decoded = self.action_decoders[action_name](z, h)
         return decoded
+    
+    def forward(self, obs: Dict, goal: Dict) -> torch.Tensor:
+        """Inference forward pass for LIBERO evaluation."""
+        rgb_static = obs["rgb_obs"]['rgb_static']
+        rgb_gripper = obs["rgb_obs"]['rgb_gripper']
+
+        batch = {
+            "rgb_obs": {
+                "rgb_static": rgb_static,
+                "rgb_gripper": rgb_gripper
+            },
+            "lang_text": [goal["lang_text"]]
+        }
+        features = self.encode_observations(batch)
+
+        noise = torch.randn(
+            len(features['features']),
+            self.act_window_size,
+            self.action_dim,
+            device=features['features'].device
+        )
+        return self.sample_actions(noise, features, inference=True)
+
+    @torch.no_grad()
+    def step(self, obs: Dict, goal: Dict) -> torch.Tensor:
+        """Do one step of inference, handling action chunking."""
+        if self.rollout_step_counter % self.multistep == 0:
+            if getattr(self, 'use_bf16', False):
+                with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                    self.pred_action_seq = self(obs, goal)
+            else:
+                self.pred_action_seq = self(obs, goal)
+
+        if not self.return_act_chunk:
+            current_action = self.pred_action_seq[0, self.rollout_step_counter]
+            if len(current_action.shape) == 2:
+                current_action = einops.rearrange(current_action, 'b d -> b 1 d')
+        else:
+            current_action = self.pred_action_seq
+
+        self.rollout_step_counter += 1
+        if self.rollout_step_counter == self.multistep:
+            self.rollout_step_counter = 0
+        return current_action
+
+    def reset(self):
+        """Reset model state for new rollout."""
+        self.rollout_step_counter = 0
+        self.pred_action_seq = None
+        self.eval()
 
     def on_train_start(self):
         """Move model to device on training start."""
