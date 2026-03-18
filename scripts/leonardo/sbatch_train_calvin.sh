@@ -3,12 +3,12 @@
 # CALVIN training on Leonardo HPC (venv-based, no container)
 #
 # Usage:
-#   sbatch scripts/leonardo/sbatch_train_calvin.sh [hydra overrides...]
+#   sbatch scripts/leonardo/sbatch_train_calvin.sh <model> [hydra overrides...]
 #
 # Examples:
-#   sbatch scripts/leonardo/sbatch_train_calvin.sh
-#   sbatch scripts/leonardo/sbatch_train_calvin.sh batch_size=8
-#   sbatch scripts/leonardo/sbatch_train_calvin.sh benchmark_name=calvin_abcd
+#   sbatch scripts/leonardo/sbatch_train_calvin.sh meanflower
+#   sbatch scripts/leonardo/sbatch_train_calvin.sh decoupled_meanflower batch_size=8
+#   sbatch scripts/leonardo/sbatch_train_calvin.sh meanflower benchmark_name=calvin_d
 # ==============================================================================
 
 #SBATCH --job-name=flower-calvin
@@ -25,6 +25,12 @@
 set -euo pipefail
 
 # ---------------------
+# Parse model argument
+# ---------------------
+MODEL="${1:?Usage: sbatch $0 <model> [hydra overrides...]}"
+shift
+
+# ---------------------
 # Paths
 # ---------------------
 FAST="${LEONARDO_FAST:-${FAST:?Set LEONARDO_FAST or FAST}}"
@@ -35,6 +41,11 @@ VENV_DIR="$WORK/venvs/flower_vla_calvin"
 DATA_DIR="$WORK/data/calvin"
 HF_CACHE="$WORK/hf_cache"
 WANDB_DIR="$CODE_DIR/wandb_runs"
+
+# WandB run name: model_dataset_date
+DATASET="calvin_abcd"
+DATE=$(date +%Y%m%d)
+WANDB_NAME="${MODEL}_${DATASET}_${DATE}"
 
 # ---------------------
 # Load modules and activate venv
@@ -94,6 +105,9 @@ echo "============================================"
 echo "Job ID:        $SLURM_JOB_ID"
 echo "Node:          $(hostname)"
 echo "GPUs:          $SLURM_GPUS_ON_NODE"
+echo "Model:         $MODEL"
+echo "Dataset:       $DATASET"
+echo "WandB name:    $WANDB_NAME"
 echo "Code:          $CODE_DIR"
 echo "Venv:          $VENV_DIR"
 echo "Data:          $DATA_DIR"
@@ -118,7 +132,8 @@ python flower/training_calvin.py \
     root_data_dir="$DATA_DIR/task_ABC_D" \
     use_extracted_rel_actions=true \
     benchmark_name=calvin_abcd \
-    model=meanflower \
+    model="$MODEL" \
+    logger.name="$WANDB_NAME" \
     "$@"
 
 echo ""

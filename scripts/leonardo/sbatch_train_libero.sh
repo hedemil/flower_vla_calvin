@@ -3,12 +3,12 @@
 # LIBERO training on Leonardo HPC (venv-based, no container)
 #
 # Usage:
-#   sbatch scripts/leonardo/sbatch_train_libero.sh [hydra overrides...]
+#   sbatch scripts/leonardo/sbatch_train_libero.sh <model> [hydra overrides...]
 #
 # Examples:
-#   sbatch scripts/leonardo/sbatch_train_libero.sh
-#   sbatch scripts/leonardo/sbatch_train_libero.sh model=meanflower batch_size=8
-#   sbatch scripts/leonardo/sbatch_train_libero.sh libero_benchmark=libero_goal
+#   sbatch scripts/leonardo/sbatch_train_libero.sh meanflower
+#   sbatch scripts/leonardo/sbatch_train_libero.sh decoupled_meanflower batch_size=8
+#   sbatch scripts/leonardo/sbatch_train_libero.sh meanflower libero_benchmark=libero_goal
 # ==============================================================================
 
 #SBATCH --job-name=flower-libero
@@ -25,6 +25,12 @@
 set -euo pipefail
 
 # ---------------------
+# Parse model argument
+# ---------------------
+MODEL="${1:?Usage: sbatch $0 <model> [hydra overrides...]}"
+shift
+
+# ---------------------
 # Paths
 # ---------------------
 FAST="${LEONARDO_FAST:-${FAST:?Set LEONARDO_FAST or FAST}}"
@@ -35,6 +41,11 @@ VENV_DIR="$WORK/venvs/flower_vla_calvin"
 DATA_DIR="$WORK/data/libero"
 HF_CACHE="$WORK/hf_cache"
 WANDB_DIR="$CODE_DIR/wandb_runs"
+
+# WandB run name: model_dataset_date
+DATASET="libero_spatial"
+DATE=$(date +%Y%m%d)
+WANDB_NAME="${MODEL}_${DATASET}_${DATE}"
 
 # ---------------------
 # Load modules and activate venv
@@ -94,6 +105,9 @@ echo "============================================"
 echo "Job ID:        $SLURM_JOB_ID"
 echo "Node:          $(hostname)"
 echo "GPUs:          $SLURM_GPUS_ON_NODE"
+echo "Model:         $MODEL"
+echo "Dataset:       $DATASET"
+echo "WandB name:    $WANDB_NAME"
 echo "Code:          $CODE_DIR"
 echo "Venv:          $VENV_DIR"
 echo "Data:          $DATA_DIR"
@@ -115,8 +129,9 @@ cd "$CODE_DIR"
 python flower/training_libero.py \
     devices=4 \
     log_dir="$CODE_DIR/logs" \
-    root_data_dir="$DATA_DIR/libero_spatial" \
-    model=meanflower \
+    root_data_dir="$DATA_DIR/$DATASET" \
+    model="$MODEL" \
+    logger.name="$WANDB_NAME" \
     "$@"
 
 echo ""

@@ -3,8 +3,9 @@
 # Debug job for Leonardo HPC - quick validation (30 min)
 #
 # Usage:
-#   sbatch scripts/leonardo/sbatch_debug.sh libero [hydra overrides...]
-#   sbatch scripts/leonardo/sbatch_debug.sh calvin [hydra overrides...]
+#   sbatch scripts/leonardo/sbatch_debug.sh <task> <model> [hydra overrides...]
+#   sbatch scripts/leonardo/sbatch_debug.sh libero meanflower
+#   sbatch scripts/leonardo/sbatch_debug.sh calvin decoupled_meanflower
 # ==============================================================================
 
 #SBATCH --job-name=flower-debug
@@ -25,7 +26,8 @@ set -euo pipefail
 # Parse task argument
 # ---------------------
 TASK="${1:-libero}"
-shift || true
+MODEL="${2:-meanflower}"
+shift 2 || shift || true
 
 if [[ "$TASK" != "libero" && "$TASK" != "calvin" ]]; then
     echo "ERROR: First argument must be 'libero' or 'calvin', got: $TASK"
@@ -156,27 +158,32 @@ mkdir -p "$WANDB_DIR"
 # ---------------------
 # Debug training (10 batches, 1 epoch)
 # ---------------------
-echo "--- Starting debug training ($TASK, 10 batches, 1 epoch) ---"
+DATE=$(date +%Y%m%d)
+echo "--- Starting debug training ($TASK, model=$MODEL, 10 batches, 1 epoch) ---"
 cd "$CODE_DIR"
 
 if [[ "$TASK" == "libero" ]]; then
+    WANDB_NAME="${MODEL}_libero_spatial_debug_${DATE}"
     python flower/training_libero.py \
         devices=4 \
         log_dir="$CODE_DIR/logs" \
         root_data_dir="$WORK/data/libero/libero_spatial" \
-        model=meanflower \
+        model="$MODEL" \
+        logger.name="$WANDB_NAME" \
         trainer.limit_train_batches=10 \
         max_epochs=1 \
         rollout_lh_skip_epochs=9999 \
         "$@"
 else
+    WANDB_NAME="${MODEL}_calvin_abcd_debug_${DATE}"
     python flower/training_calvin.py \
         devices=4 \
         log_dir="$CODE_DIR/logs" \
         root_data_dir="$WORK/data/calvin/task_ABC_D" \
         use_extracted_rel_actions=true \
         benchmark_name=calvin_abcd \
-        model=meanflower \
+        model="$MODEL" \
+        logger.name="$WANDB_NAME" \
         trainer.limit_train_batches=10 \
         max_epochs=1 \
         rollout_lh_skip_epochs=9999 \
