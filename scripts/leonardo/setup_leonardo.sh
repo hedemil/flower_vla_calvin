@@ -169,8 +169,8 @@ setup_venv() {
     cd "$CODE_DIR"
     pip install -e .
 
-    # Pin versions that get overwritten by LIBERO's old requirements
-    pip install numpy~=1.23 transformers==4.46.3 wandb --upgrade
+    # Ensure correct versions (in case any submodule install overwrote them)
+    pip install transformers==4.46.3 --quiet
 
     # Create LIBERO config file
     LIBERO_CONFIG_DIR="$HOME/.libero"
