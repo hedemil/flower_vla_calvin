@@ -6,7 +6,6 @@ _recursive_: false
 vlm_path: microsoft/Florence-2-large
 freeze_florence: False
 freeze_vision_tower: False
-freeze_embeddings_only: False
 vlm_prompt_style: default
 token_dropout: 0.1
 cfg_dropout: 0.1
