@@ -76,6 +76,8 @@ class MeanFlowerVLA(pl.LightningModule):
         P_mean: float = -0.4,
         P_std: float = 1.0,
         ratio: float = 0.75,
+        norm_eps: float = 1e-2,
+        norm_p: float = 0.5,
         # Optimizer Configuration
         optimizer_type: str = "adamw",
         optimizer: DictConfig = None,
@@ -152,6 +154,8 @@ class MeanFlowerVLA(pl.LightningModule):
         self.ratio = ratio
         self.register_buffer("P_mean", torch.tensor(P_mean, dtype=torch.float32))
         self.register_buffer("P_std", torch.tensor(P_std, dtype=torch.float32))
+        self.norm_eps = norm_eps
+        self.norm_p = norm_p
 
         # State tracking
         self.rollout_step_counter = 0
@@ -572,9 +576,7 @@ class MeanFlowerVLA(pl.LightningModule):
             # self-referential target u_tgt = v - h*du/dt creates a positive
             # feedback loop where large du/dt → large loss → large gradients
             # → even larger du/dt, causing divergence.
-            norm_eps = 0.01
-            norm_p = 0.5
-            adp_wt = (loss_per_sample.detach() + norm_eps) ** norm_p
+            adp_wt = (loss_per_sample.detach() + self.norm_eps) ** self.norm_p
             loss_per_sample = loss_per_sample / adp_wt
 
             loss = loss_per_sample.mean()

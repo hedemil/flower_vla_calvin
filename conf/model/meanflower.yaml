@@ -52,6 +52,8 @@ noise_dist: logit_normal
 P_mean: -2.0 # -0.4 for ImageNet 256 -2.0 for CIFAR10
 P_std: 2.0 # 1.0 for ImageNet 256, 2.0 for CIFAR10
 ratio: 0.25
+norm_eps: 1e-2
+norm_p: 1.0
 
 # Optimizer Configuration
 optimizer_type: adamw
