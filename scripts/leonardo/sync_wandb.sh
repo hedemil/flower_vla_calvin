@@ -9,18 +9,18 @@
 set -euo pipefail
 
 FAST="${LEONARDO_FAST:-${FAST:?Set LEONARDO_FAST or FAST}}"
-WANDB_DIR="$FAST/flower_vla_calvin/wandb_runs"
+LOGS_DIR="$FAST/flower_vla_calvin/logs/runs"
 
-if [[ ! -d "$WANDB_DIR" ]]; then
-    echo "WandB directory not found: $WANDB_DIR"
+if [[ ! -d "$LOGS_DIR" ]]; then
+    echo "Logs directory not found: $LOGS_DIR"
     exit 1
 fi
 
-# Find all offline runs
-OFFLINE_RUNS=$(find "$WANDB_DIR" -maxdepth 2 -type d -name "offline-run-*" 2>/dev/null)
+# Find all offline runs (nested inside Hydra run dirs under wandb/)
+OFFLINE_RUNS=$(find "$LOGS_DIR" -type d -name "offline-run-*" 2>/dev/null)
 
 if [[ -z "$OFFLINE_RUNS" ]]; then
-    echo "No offline WandB runs found in $WANDB_DIR"
+    echo "No offline WandB runs found in $LOGS_DIR"
     exit 0
 fi
 
