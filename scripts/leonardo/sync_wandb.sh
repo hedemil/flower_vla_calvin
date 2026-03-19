@@ -35,10 +35,10 @@ for run_dir in $OFFLINE_RUNS; do
     echo "Syncing: $(basename "$run_dir")"
     if wandb sync "$run_dir" 2>&1; then
         echo "  Synced successfully"
-        ((SYNCED++))
+        SYNCED=$((SYNCED + 1))
     else
         echo "  FAILED to sync"
-        ((FAILED++))
+        FAILED=$((FAILED + 1))
     fi
     echo ""
 done
