@@ -1,6 +1,14 @@
 #!/bin/bash
 
 # Script to run FLOWER evaluation on LIBERO benchmarks
+#
+# Usage:
+#   ./scripts/run_libero_evaluation.sh <benchmark> <model>
+#
+# Examples:
+#   ./scripts/run_libero_evaluation.sh libero_spatial meanflower
+#   ./scripts/run_libero_evaluation.sh libero_spatial flower
+#   ./scripts/run_libero_evaluation.sh libero_goal meanflower
 
 set -e
 
@@ -17,9 +25,9 @@ echo "==========================================="
 
 # Parse arguments
 BENCHMARK="${1:-libero_spatial}"
+MODEL="${2:-meanflower}"
 echo "Selected Benchmark: $BENCHMARK"
-CHECKPOINT_DIR="/workspace/flower_vla_calvin/checkpoints/${BENCHMARK}"
-echo "Checkpoint Directory: $CHECKPOINT_DIR"
+echo "Selected Model:     $MODEL"
 
 # Validate benchmark
 VALID_BENCHMARKS=("libero_spatial" "libero_object" "libero_goal" "libero_10" "libero_90")
@@ -29,45 +37,89 @@ if [[ ! " ${VALID_BENCHMARKS[@]} " =~ " ${BENCHMARK} " ]]; then
     exit 1
 fi
 
+# Validate model
+VALID_MODELS=("flower" "meanflower")
+if [[ ! " ${VALID_MODELS[@]} " =~ " ${MODEL} " ]]; then
+    echo "ERROR: Invalid model: $MODEL"
+    echo "Valid options: ${VALID_MODELS[@]}"
+    exit 1
+fi
+
+# Set num_sampling_steps based on model
+if [[ "$MODEL" == "meanflower" ]]; then
+    NUM_SAMPLING_STEPS=1
+else
+    NUM_SAMPLING_STEPS=4
+fi
+
+# Checkpoint directory: checkpoints/<benchmark>/<model>/
+CHECKPOINT_DIR="/workspace/flower_vla_calvin/checkpoints/${BENCHMARK}/${MODEL}"
+echo "Checkpoint Directory: $CHECKPOINT_DIR"
+
 # Check if checkpoint exists
 if [ ! -d "$CHECKPOINT_DIR" ] || [ ! "$(ls -A $CHECKPOINT_DIR)" ]; then
     echo "ERROR: Checkpoint not found at: $CHECKPOINT_DIR"
     echo ""
-    echo "To download checkpoint, run:"
-    echo "  scripts/download_libero_checkpoint.sh $BENCHMARK"
+    echo "Expected structure:"
+    echo "  checkpoints/${BENCHMARK}/${MODEL}/"
+    echo "    ├── .hydra/config.yaml"
+    echo "    └── model.ckpt (or model.safetensors)"
     exit 1
+fi
+
+# Auto-detect checkpoint file
+if [ -f "$CHECKPOINT_DIR/model.ckpt" ]; then
+    CKPT_FILE="$CHECKPOINT_DIR/model.ckpt"
+elif [ -f "$CHECKPOINT_DIR/model.safetensors" ]; then
+    CKPT_FILE="$CHECKPOINT_DIR/model.safetensors"
+else
+    # Find any .ckpt file
+    CKPT_FILE=$(find "$CHECKPOINT_DIR" -name "*.ckpt" -type f | head -1)
+    if [ -z "$CKPT_FILE" ]; then
+        echo "ERROR: No .ckpt or .safetensors file found in $CHECKPOINT_DIR"
+        exit 1
+    fi
+fi
+
+# Auto-detect hydra config
+TRAIN_FOLDER="$CHECKPOINT_DIR/.hydra/config.yaml"
+if [ ! -f "$TRAIN_FOLDER" ]; then
+    # Search parent directories
+    TRAIN_FOLDER=$(find "$CHECKPOINT_DIR" -path "*/.hydra/config.yaml" -type f | head -1)
+    if [ -z "$TRAIN_FOLDER" ]; then
+        echo "ERROR: .hydra/config.yaml not found in $CHECKPOINT_DIR"
+        exit 1
+    fi
 fi
 
 # Check if LIBERO dataset exists
 LIBERO_DATASET_DIR="/workspace/flower_vla_calvin/LIBERO/libero/datasets/${BENCHMARK}"
 if [ ! -d "$LIBERO_DATASET_DIR" ] || [ ! "$(ls -A $LIBERO_DATASET_DIR)" ]; then
-    echo "ERROR: LIBERO dataset not found at: $LIBERO_DATASET_DIR"
-    echo ""
-    echo "To download dataset, run:"
-    echo "  cd LIBERO && python benchmark_scripts/download_libero_datasets.py --datasets $BENCHMARK --use-huggingface"
-    exit 1
+    echo "WARNING: LIBERO dataset not found at: $LIBERO_DATASET_DIR"
+    echo "  LIBERO benchmark API may still work if ~/.libero/config.yaml is set."
 fi
 
 echo ""
 echo "Configuration:"
-echo "  Benchmark: $BENCHMARK"
-echo "  Checkpoint: $CHECKPOINT_DIR"
-echo "  Dataset: $LIBERO_DATASET_DIR"
-echo "  Device: cuda:0"
+echo "  Benchmark:           $BENCHMARK"
+echo "  Model:               $MODEL"
+echo "  Checkpoint:          $CKPT_FILE"
+echo "  Train folder:        $TRAIN_FOLDER"
+echo "  Num sampling steps:  $NUM_SAMPLING_STEPS"
+echo "  Device:              cuda:0"
 echo ""
-
-# Convert benchmark name to uppercase for Hydra config
-# BENCHMARK_UPPER=$(echo "$BENCHMARK" | tr '[:lower:]' '[:upper:]')
 
 # Run evaluation with Hydra
 python flower/evaluation/flower_eval_libero.py \
-    train_folder="$CHECKPOINT_DIR" \
-    checkpoint="$CHECKPOINT_DIR/model.safetensors" \
+    train_folder="$TRAIN_FOLDER" \
+    checkpoint="$CKPT_FILE" \
     benchmark_name="$BENCHMARK" \
-    log_dir="${SCRIPT_DIR}/evaluation/${BENCHMARK}_evaluation" \
+    num_sampling_steps="$NUM_SAMPLING_STEPS" \
+    eval_cfg_overwrite.model.num_sampling_steps="$NUM_SAMPLING_STEPS" \
+    log_dir="${SCRIPT_DIR}/evaluation/${BENCHMARK}_${MODEL}_evaluation" \
     wandb_entity=VLA-Thesis \
     device=0 \
-    n_eval=20 \
+    n_eval=1 \
     max_steps=520 \
     num_videos=5 \
     log_wandb=true
@@ -77,6 +129,4 @@ echo "=========================================="
 echo "Evaluation Complete!"
 echo "=========================================="
 echo ""
-echo "Results saved in outputs/ directory"
-echo "Videos saved in outputs/videos/ directory (if enabled)"
-echo ""
+echo "Results saved in evaluation/${BENCHMARK}_${MODEL}_evaluation/"

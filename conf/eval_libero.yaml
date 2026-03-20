@@ -24,4 +24,4 @@ n_eval: 20
 num_sampling_steps: 4
 multistep: 10
 
-benchmark_name: libero_10 # [LIBERO_SPATIAL, LIBERO_OBJECT, LIBERO_GOAL, LIBERO_90, LIBERO_10]
+benchmark_name: libero_spatial # [LIBERO_SPATIAL, LIBERO_OBJECT, LIBERO_GOAL, LIBERO_90, LIBERO_10]

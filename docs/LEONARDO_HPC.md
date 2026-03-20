@@ -21,6 +21,9 @@ Guide for running FLOWER VLA training on Leonardo using a Python venv and SLURM.
 export LEONARDO_FAST=/leonardo_scratch/fast/<YOUR_ACCOUNT>
 export LEONARDO_WORK=/leonardo_work/<YOUR_ACCOUNT>
 
+# .venv
+source $LEONARDO_WORK/project/venvs/flowervla/bin/activate
+
 # Rsync the repo (including submodules) to fast storage
 rsync -av --exclude='.git' --exclude='dataset' --exclude='logs' \
     ./flower_vla_calvin/ leonardo:$FAST/flower_vla_calvin/
@@ -219,6 +222,13 @@ rsync -av --delete conf/    leonardo:$FAST/flower_vla_calvin/conf/
 
 ---
 
+## 9. Download checkpoint
+```bash
+rsync -avP leonardo:/leonardo_scratch/fast/AIFAC_P01_047/flower_vla_calvin/logs/runs/<path to checkpoint> ./<download dir>
+
+rsync -avP leonardo:/leonardo_scratch/fast/AIFAC_P01_047/flower_vla_calvin/logs/runs/<path to run>/.hydra ./<path to checkpoint>
+
+```
 ## Troubleshooting
 
 | Issue | Solution |
