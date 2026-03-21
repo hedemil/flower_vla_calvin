@@ -564,6 +564,8 @@ class FLOWERVLA(pl.LightningModule):
             vc = self.dit_forward(z, t_tensor, cond)
             z = z - dt_tensor * vc
 
+        # logger.info(f"Sampled actions with shape {z.shape}")
+        # logger.info(f"Action: {z.clamp(-1, 1)}")
         return z.clamp(-1, 1)
 
     def dit_forward(self, z: torch.Tensor, t: torch.Tensor, cond_dict: dict) -> torch.Tensor:

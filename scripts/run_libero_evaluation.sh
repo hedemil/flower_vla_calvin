@@ -119,7 +119,7 @@ python flower/evaluation/flower_eval_libero.py \
     log_dir="${SCRIPT_DIR}/evaluation/${BENCHMARK}_${MODEL}_evaluation" \
     wandb_entity=VLA-Thesis \
     device=0 \
-    n_eval=1 \
+    n_eval=5 \
     max_steps=520 \
     num_videos=5 \
     log_wandb=true

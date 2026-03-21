@@ -12,8 +12,8 @@ log_dir: ./logs
 slurm: false
 seed: 42
 device: 'cuda'
-batch_size: 4 # 8 per GPU
-devices: 2 # 4 numbers of GPUs
+batch_size: 8 # 8 per GPU
+devices: 4 # 4 numbers of GPUs
 goal_window_size: 1
 act_dim: 7
 proprio_dims: 9
