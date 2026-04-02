@@ -23,6 +23,7 @@ from flower.models.networks.meanflower_transformers import (
     ZeroEncoder,
     FlowBlock,
     MeanFlowDecoder,
+    VelocityDecoder,
     stateless_norm
 )
 from flower.utils.lr_schedulers.tri_stage_scheduler import TriStageLRScheduler
@@ -78,6 +79,10 @@ class MeanFlowerVLA(pl.LightningModule):
         ratio: float = 0.75,
         norm_eps: float = 1e-2,
         norm_p: float = 0.5,
+        # iMF Configuration
+        use_imf: bool = False,
+        imf_v_weight: float = 1.0,
+        imf_head_depth: int = 8,
         # Optimizer Configuration
         optimizer_type: str = "adamw",
         optimizer: DictConfig = None,
@@ -130,6 +135,8 @@ class MeanFlowerVLA(pl.LightningModule):
         self.vlm_latent_dim = hidden_dim
         self.action_type_adaln = action_type_adaln
         self.use_proprio = use_proprio
+        self.use_imf = use_imf
+        self.imf_head_depth = imf_head_depth
 
         # Setup DiT components (Mean Flow version with MeanFlowDecoder)
         self._setup_dit_components_meanflow(
@@ -156,6 +163,7 @@ class MeanFlowerVLA(pl.LightningModule):
         self.register_buffer("P_std", torch.tensor(P_std, dtype=torch.float32))
         self.norm_eps = norm_eps
         self.norm_p = norm_p
+        self.imf_v_weight = imf_v_weight
 
         # State tracking
         self.rollout_step_counter = 0
@@ -347,19 +355,34 @@ class MeanFlowerVLA(pl.LightningModule):
             )
 
         # Set up DiT blocks
-        self.dit = nn.ModuleList([
-            FlowBlock(
-                dim=dit_dim,
-                heads=n_heads,
-                attn_pdrop=attn_pdrop,
-                resid_pdrop=resid_pdrop,
-                mlp_pdrop=mlp_pdrop,
-                use_cross_attn=use_cross_attn,
-                use_rope=use_rope,
-                query_seq_len=query_seq_len,
-                rope_theta=rope_theta
-            ) for _ in range(n_layers)
-        ])
+        block_kwargs = dict(
+            dim=dit_dim,
+            heads=n_heads,
+            attn_pdrop=attn_pdrop,
+            resid_pdrop=resid_pdrop,
+            mlp_pdrop=mlp_pdrop,
+            use_cross_attn=use_cross_attn,
+            use_rope=use_rope,
+            query_seq_len=query_seq_len,
+            rope_theta=rope_theta,
+        )
+
+        if self.use_imf:
+            # Split into shared backbone + separate u/v heads (matching official iMF)
+            shared_depth = n_layers - self.imf_head_depth
+            self.shared_blocks = nn.ModuleList([
+                FlowBlock(**block_kwargs) for _ in range(shared_depth)
+            ])
+            self.u_head_blocks = nn.ModuleList([
+                FlowBlock(**block_kwargs) for _ in range(self.imf_head_depth)
+            ])
+            self.v_head_blocks = nn.ModuleList([
+                FlowBlock(**block_kwargs) for _ in range(self.imf_head_depth)
+            ])
+        else:
+            self.dit = nn.ModuleList([
+                FlowBlock(**block_kwargs) for _ in range(n_layers)
+            ])
 
         # Set up action-specific components
         for action_name, action_idx in self.action_space_index.action_spaces.items():
@@ -402,13 +425,43 @@ class MeanFlowerVLA(pl.LightningModule):
                         device=self.device
                     )
 
-        # # Set up shared AdaLN if not using action-specific AdaLN
-        # if not self.action_type_adaln:
-        #     self.adaln = SharedAdaLNController(
-        #         dit_dim,
-        #         global_conddim=dit_dim,
-        #         use_cross_attn=use_cross_attn
-        #     )
+        # Set up velocity decoder for iMF
+        if self.use_imf:
+            self.velocity_decoders = nn.ModuleDict()
+            for action_name, action_idx in self.action_space_index.action_spaces.items():
+                input_dim = self.action_space_index.get_action_dim(action_idx)
+                self.velocity_decoders[action_name] = VelocityDecoder(
+                    dit_dim=dit_dim,
+                    action_dim=input_dim,
+                ).to(self.device)
+
+        # Set up shared AdaLN if not using action-specific AdaLN
+        if not self.action_type_adaln:
+            self.adaln = SharedAdaLNController(
+                dit_dim,
+                global_conddim=dit_dim,
+                use_cross_attn=use_cross_attn
+            )
+
+    @property
+    def dit_blocks(self) -> nn.ModuleList:
+        """Returns all DiT blocks as a single ModuleList for gradient clipping / iteration.
+        Works for both iMF (shared + u-head + v-head) and non-iMF (single dit) modes."""
+        if self.use_imf:
+            all_blocks = nn.ModuleList(
+                list(self.shared_blocks) + list(self.u_head_blocks) + list(self.v_head_blocks)
+            )
+            return all_blocks
+        return self.dit
+
+    def dit_parameters(self):
+        """Yields all DiT block parameters for gradient clipping."""
+        if self.use_imf:
+            yield from self.shared_blocks.parameters()
+            yield from self.u_head_blocks.parameters()
+            yield from self.v_head_blocks.parameters()
+        else:
+            yield from self.dit.parameters()
 
     def configure_optimizers(self):
         """Configure optimizers and schedulers."""
@@ -525,10 +578,6 @@ class MeanFlowerVLA(pl.LightningModule):
         # Sample t and r with constraint t >= r
         t, r = self.sample_tr(b)
 
-        if self.global_rank == 0 and self.trainer.fit_loop.total_batch_idx % 1000 == 0:
-            logger.info(f"Step {self.global_step} | t: mean={t.mean().item():.4f}, std={t.std().item():.4f}, min={t.min().item():.4f}, max={t.max().item():.4f}")
-            logger.info(f"Step {self.global_step} | r: mean={r.mean().item():.4f}, std={r.std().item():.4f}, min={r.min().item():.4f}, max={r.max().item():.4f}")
-
         # Interpolate: z_t = (1 - t) * x + t * e
         texp = t.view([b] + [1] * (actions.dim() - 1)).to(dtype=default_dtype)
         rexp = r.view([b] + [1] * (actions.dim() - 1)).to(dtype=default_dtype)
@@ -636,54 +685,118 @@ class MeanFlowerVLA(pl.LightningModule):
         }
 
         return loss, losses_dict
-
-    def rf_loss(self, cond, actions, dataset_idx=None):
+    
+    def imf_loss(self, cond: dict, actions: torch.Tensor, dataset_idx: Any = None) -> Tuple[torch.Tensor, Dict[str, Any]]:
         """
-        Compute the rectified flow loss.
+        Improved MeanFlow (iMF) loss. Non-self-referential compound velocity target.
+        Based on: https://github.com/Lyy-iiis/imeanflow
+
+        Key differences from meanflow_loss:
+        1. JVP tangent uses predicted velocity v_c (from velocity head at h=0)
+        2. Loss target: V = u + h * sg(du/dt) trained against v = e - x
+        3. Auxiliary v-loss trains the velocity head
         """
         default_dtype = next(self.parameters()).dtype
-        
+        action_type = cond['action_type']
         if len(actions.shape) == 4:
             actions = actions.squeeze(1)
         b = actions.size(0)
         device = actions.device
-        actions = actions.to(default_dtype)
+        actions = actions.to(dtype=default_dtype)
 
-        # Sample time based on sampling strategy
-        if self.sampling_type == "pi_zero":
-            alpha, beta = 1.5, 1.0
-            t = torch.distributions.Beta(alpha, beta).sample((b,)).to(device)
-            t = t.clamp(max=0.999)
-        elif self.sampling_type == "ln":
-            t = torch.sigmoid(torch.randn((b,), device=device))
-            t = t.clamp(max=0.999).to(default_dtype)
-        elif self.sampling_type == "uniform":
-            eps = 1e-5
-            t = (torch.rand(1, device=device) + torch.arange(b, device=device) / b) % (1 - eps)
-            t = t.to(default_dtype)
-        else:
-            raise NotImplementedError(f"Sampling type {self.sampling_type} not implemented")
+        # Sample t and r with constraint t >= r
+        t, r = self.sample_tr(b)
 
-        # Interpolate between actions and noise
-        texp = t.view([b] + [1] * (actions.dim() - 1))
-        z1 = torch.randn_like(actions, device=device).to(default_dtype)
+        texp = t.view([b] + [1] * (actions.dim() - 1)).to(dtype=default_dtype)
+        rexp = r.view([b] + [1] * (actions.dim() - 1)).to(dtype=default_dtype)
 
-        # Interpolate
-        zt = (1 - texp) * actions + texp * z1
+        # Sample noise only over valid action dimensions
+        e = torch.zeros_like(actions)
 
-        # Forward pass
-        vtheta = self.dit_forward(zt, t, cond)
-        # Compute loss on valid dimensions only
-        diff = (z1 - actions) - vtheta
-        valid_diff = diff
-        loss = (valid_diff ** 2).mean()
+        z = (1 - texp) * actions + texp * e
+        v = e - actions  # data velocity (target)
 
-        # Collect debugging info
+        # Step 1: Compute v_c (velocity prediction at h=0) for JVP tangent.
+        # h=0 gives instantaneous velocity (not mean flow).
+        # No gradients needed — v_c is only used as tangent direction.
+        h_zero = torch.zeros_like(t)
+        with torch.no_grad():
+            with torch.amp.autocast("cuda", dtype=torch.bfloat16):
+                _, v_c_tangent = self._forward_imf(z, t, h_zero, cond)
+
+        # Step 2: JVP with has_aux=True — u_func returns (u, v_pred) where
+        # v_pred is auxiliary (not differentiated). Matches official iMF pattern.
+        # Single forward pass: shared blocks -> branch -> u-head + v-head.
+        def u_func(z_input, t_input, r_input):
+            with torch.amp.autocast("cuda", dtype=torch.bfloat16):
+                h_input = t_input - r_input
+                t_flat = t_input.view(-1)
+                h_flat = h_input.view(-1)
+                u, v_pred = self._forward_imf(z_input, t_flat, h_flat, cond)
+            return u, v_pred
+
+        dtdt = torch.ones_like(texp)
+        drdt = torch.zeros_like(rexp)
+
+        with torch.amp.autocast("cuda", enabled=False):
+            u_pred, du_dt, v_pred = torch.func.jvp(
+                u_func,
+                (z, texp, rexp),
+                (v_c_tangent, dtdt, drdt),
+                has_aux=True,
+            )
+
+            # Step 3: Compound velocity V = u + h * sg(du/dt)
+            h = (texp - rexp).clamp(min=0.0, max=1.0)
+            V = u_pred + h * du_dt.detach()
+
+            # Stop-gradient on target
+            v_g = v.detach()
+
+            # Step 4: Compound velocity loss (V vs v)
+            diff_V = (V - v_g)
+            loss_V_per_sample = (diff_V ** 2).sum(dim=(1, 2))
+            adp_wt_V = (loss_V_per_sample.detach() + self.norm_eps) ** self.norm_p
+            loss_V = (loss_V_per_sample / adp_wt_V).mean()
+
+            # Step 5: Auxiliary velocity loss (v_pred from JVP primal vs v)
+            diff_vc = (v_pred - v_g)
+            loss_vc_per_sample = (diff_vc ** 2).sum(dim=(1, 2))
+            adp_wt_vc = (loss_vc_per_sample.detach() + self.norm_eps) ** self.norm_p
+            loss_vc = (loss_vc_per_sample / adp_wt_vc).mean()
+
+            # Total loss: compound velocity + auxiliary velocity (matches iMF paper)
+            loss = loss_V + loss_vc
+
+        # Monitor metrics
+        with torch.no_grad():
+            valid_V = V
+            valid_v = v
+            valid_u = u_pred
+            raw_mse_V = loss_V_per_sample.detach().mean()
+            raw_mse_vc = loss_vc_per_sample.detach().mean()
+            dudt_norm = du_dt.norm(dim=0).mean()
+            cos_V_v = F.cosine_similarity(
+                valid_V.unsqueeze(0), valid_v.unsqueeze(0), dim=-1
+            ).mean()
+            cos_u_v = F.cosine_similarity(
+                valid_u.unsqueeze(0), valid_v.unsqueeze(0), dim=-1
+            ).mean()
+
+        if torch.isnan(loss).any() or torch.isinf(loss).any():
+            logger.warning("NaN/Inf detected in iMF loss! Clipping to prevent crash.")
+            loss = torch.nan_to_num(loss, nan=1e6, posinf=1e6, neginf=1e6)
+
         losses_dict = {
-            "diff_min": valid_diff.min().item(),
-            "diff_max": valid_diff.max().item(),
-            "diff_mean": valid_diff.mean().item(),
-            "loss": loss.item(),
+            "loss": loss.item() if not (torch.isnan(loss).any() or torch.isinf(loss).any()) else 1e6,
+            "loss_V": loss_V.item(),
+            "loss_vc": loss_vc.item(),
+            "raw_mse_V": raw_mse_V.item(),
+            "raw_mse_vc": raw_mse_vc.item(),
+            "dudt_norm": dudt_norm.item(),
+            "cos_V_v": cos_V_v.item(),
+            "cos_u_v": cos_u_v.item(),
+            "h_mean": h.mean().item(),
         }
 
         return loss, losses_dict
@@ -703,39 +816,28 @@ class MeanFlowerVLA(pl.LightningModule):
         z = z - u
         return z.clamp(-1, 1)  
     
-    def dit_forward_meanflow(self, z: torch.Tensor, t: torch.Tensor, h: torch.Tensor, cond_dict: dict) -> torch.Tensor:
-        """
-        Forward pass through the DiT blocks using MeanFlowDecoder.
-
-        Args:
-            z: Latent actions [B, T, action_dim]
-            t: Current timestep [B]
-            h: Timestep difference (t - r) [B]
-            cond_dict: Conditioning dictionary
-        """
+    def _dit_backbone(self, z: torch.Tensor, t: torch.Tensor, h: torch.Tensor, cond_dict: dict):
+        """Shared DiT backbone: encode actions, build conditioning, run blocks.
+        When use_imf=True, runs only shared_blocks; otherwise runs all dit blocks.
+        Returns (features, action_type, valid_dims, cond_kwargs)."""
         default_dtype = next(self.parameters()).dtype
         B, t_seq, d = z.shape
-        
-        # Get conditioning information
+
         cond = cond_dict['features'].to(default_dtype)
         frequency_embeds = cond_dict['frequency_embeds'].squeeze(1).to(default_dtype)
         action_type = cond_dict['action_type'].to(self.device)
-        
-        # Handle proprioception
+
         if self.use_proprio and cond_dict['proprio'] is not None:
             proprio = cond_dict['proprio'].to(default_dtype)
             proprio_embeds = self.encode_proprio(proprio, action_type, frequency_embeds.shape)
         else:
             proprio_embeds = torch.zeros_like(frequency_embeds)
-        
-        # Encode actions
+
         z, valid_dims = self.encode_actions(z, action_type)
-        
-        # Add positional encoding if not using ROPE/NOPE
+
         if not self.use_rope and not self.use_nope:
             z = z + self.positional_encoding
-        
-        # Process embeddings (h-conditioning feeds all DiT blocks, not just the decoder)
+
         t_emb = stateless_norm(self.t_embedder(t)) + \
                 stateless_norm(self.h_embedder(h)) + \
                 stateless_norm(frequency_embeds).squeeze(1) + \
@@ -743,92 +845,59 @@ class MeanFlowerVLA(pl.LightningModule):
 
         cond = self.cond_linear(self.cond_norm(cond))
 
-        # Set up conditioning
         if self.use_adaln_cond:
             vlm_token = cond[:, 0, :] if self.use_readout_token else cond.mean(dim=1)
             global_cond = vlm_token + t_emb
         else:
             global_cond = t_emb
 
-        # Setup context
         cx = z
         context = cond if self.use_cross_attn else None
 
-        # Get adaln signals
         if not self.action_type_adaln:
             global_adaln = self.adaln(global_cond)
         else:
             global_adaln = self.action_specific_adaln(global_cond, action_type)
 
-        for layer in self.dit:
+        # Run shared blocks (iMF) or all blocks (non-iMF)
+        blocks = self.shared_blocks if self.use_imf else self.dit
+        for layer in blocks:
             cx = layer(cx, global_cond, context=context, is_causal=True, global_adaln=global_adaln)
 
-        # Decode actions with h-conditioned MeanFlowDecoder
-        return self.decode_actions_meanflow(cx, h, action_type, valid_dims)
-    
-    def dit_forward(self, z: torch.Tensor, t: torch.Tensor, cond_dict: dict) -> torch.Tensor:
-        """
-        Forward pass through the DiT blocks.
-        """
-        default_dtype = next(self.parameters()).dtype
-        B, t_seq, d = z.shape
-        
-        # Get conditioning information
-        cond = cond_dict['features'].to(default_dtype)
-        frequency_embeds = cond_dict['frequency_embeds'].squeeze(1).to(default_dtype)
-        action_type = cond_dict['action_type'].to(self.device)
-        
-        # Handle proprioception
-        if self.use_proprio and cond_dict['proprio'] is not None:
-            proprio = cond_dict['proprio'].to(default_dtype)
-            proprio_embeds = self.encode_proprio(proprio, action_type, frequency_embeds.shape)
-        else:
-            proprio_embeds = torch.zeros_like(frequency_embeds)
-        
-        # Encode actions
-        z, valid_dims = self.encode_actions(z, action_type)
-        
-        # Add positional encoding if not using ROPE/NOPE
-        if not self.use_rope and not self.use_nope:
-            z = z + self.positional_encoding
-        
-        # Process embeddings
-        t_emb = stateless_norm(self.t_embedder(t)) + \
-                stateless_norm(frequency_embeds).squeeze(1) + \
-                stateless_norm(proprio_embeds).squeeze(1)
-        
-        cond = self.cond_linear(self.cond_norm(cond))
-        
-        # Set up conditioning
-        if self.use_adaln_cond:
-            vlm_token = cond[:, 0, :] if self.use_readout_token else cond.mean(dim=1)
-            global_cond = vlm_token + t_emb
-        else:
-            global_cond = t_emb
-        
-        # Setup context
-        cx = z
-        context = cond if self.use_cross_attn else None
-        
-        # Get adaln signals
-        if not self.action_type_adaln:
-            global_adaln = self.adaln(global_cond)
-        else:
-            global_adaln = self.action_specific_adaln(global_cond, action_type)
-        
+        cond_kwargs = dict(global_cond=global_cond, context=context, global_adaln=global_adaln)
+        return cx, action_type, valid_dims, cond_kwargs
 
-        # Process through DiT blocks
-        for layer in self.dit:
-            cx = layer(
-                cx, 
-                global_cond, 
-                context=context, 
-                is_causal=True, 
-                global_adaln=global_adaln
-            )
-            
-        # Decode and return
-        return self.decode_actions(cx, action_type, valid_dims)
+    def _forward_imf(self, z: torch.Tensor, t: torch.Tensor, h: torch.Tensor, cond_dict: dict):
+        """Single forward pass for iMF: shared blocks -> branch -> u-head + v-head.
+        Returns (u, v) from one pass, matching official iMF __call__."""
+        cx, action_type, valid_dims, cond_kwargs = self._dit_backbone(z, t, h, cond_dict)
+
+        # Branch from shared output
+        cx_u = cx
+        cx_v = cx
+
+        for block in self.u_head_blocks:
+            cx_u = block(cx_u, cond_kwargs['global_cond'], context=cond_kwargs['context'],
+                         is_causal=True, global_adaln=cond_kwargs['global_adaln'])
+
+        for block in self.v_head_blocks:
+            cx_v = block(cx_v, cond_kwargs['global_cond'], context=cond_kwargs['context'],
+                         is_causal=True, global_adaln=cond_kwargs['global_adaln'])
+
+        u = self.decode_actions_meanflow(cx_u, h, action_type, valid_dims)
+        v = self.decode_velocity(cx_v, action_type, valid_dims)
+
+        return u, v
+
+    def dit_forward_meanflow(self, z: torch.Tensor, t: torch.Tensor, h: torch.Tensor, cond_dict: dict) -> torch.Tensor:
+        """Forward pass for inference: backbone + u-head + MeanFlowDecoder.
+        Only uses shared + u-head blocks (no v-head needed at inference)."""
+        cx, action_type, valid_dims, cond_kwargs = self._dit_backbone(z, t, h, cond_dict)
+        if self.use_imf:
+            for block in self.u_head_blocks:
+                cx = block(cx, cond_kwargs['global_cond'], context=cond_kwargs['context'],
+                           is_causal=True, global_adaln=cond_kwargs['global_adaln'])
+        return self.decode_actions_meanflow(cx, h, action_type, valid_dims)
     
     def encode_proprio(self, proprio: torch.Tensor, action_type: torch.Tensor, output_shape) -> torch.Tensor:
         """
@@ -994,6 +1063,23 @@ class MeanFlowerVLA(pl.LightningModule):
             mask = (action_type == action_idx)
             if mask.any():
                 decoded = self.action_decoders[action_name](z, h)
+        return decoded
+    
+    def decode_velocity(
+        self, z: torch.Tensor, action_type: torch.Tensor, valid_dims: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Decodes latent representations into actions using MeanFlowDecoder.
+        The decoder is conditioned on h = t - r.
+        """
+        default_dtype = next(self.parameters()).dtype
+        B = z.shape[0]
+        max_action_dim = self.action_dim
+        decoded = torch.zeros(B, z.shape[1], max_action_dim, device=self.device, dtype=default_dtype)
+        for action_name, action_idx in self.action_space_index.action_spaces.items():
+            mask = (action_type == action_idx)
+            if mask.any():
+                decoded = self.velocity_decoders[action_name](z)
         return decoded
     
     def forward(self, obs: Dict, goal: Dict) -> torch.Tensor:

@@ -631,3 +631,16 @@ class MeanFlowDecoder(nn.Module):
 
         return self.decoder(z_h)  # [B, T, action_dim]
     
+class VelocityDecoder(nn.Module):
+    """Instantaneous velocity decoder for iMF (no h-conditioning).
+    Predicts v_c used as JVP tangent and trained with auxiliary v-loss.
+    Simple linear projection like the original FLOWER action decoder."""
+    def __init__(self, dit_dim: int, action_dim: int, **kwargs):
+        super().__init__()
+        self.linear = nn.Linear(dit_dim, action_dim)
+        nn.init.zeros_(self.linear.weight)
+        nn.init.zeros_(self.linear.bias)
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        """z: [B, T, dit_dim] -> [B, T, action_dim]"""
+        return self.linear(z)
