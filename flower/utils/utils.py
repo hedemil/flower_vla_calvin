@@ -29,17 +29,29 @@ def timeit(method):
 
 
 def initialize_pretrained_weights(model, cfg):
-    # Use torch.load to load the checkpoint instead of pl_load
-    pretrain_chk = torch.load(format_sftp_path(Path(cfg.pretrain_chk)), map_location=lambda storage, loc: storage)
+    chk_path = format_sftp_path(Path(cfg.pretrain_chk))
+
+    # Load safetensors or torch checkpoint
+    if str(chk_path).endswith('.safetensors'):
+        from safetensors.torch import load_file
+        state_dict = load_file(str(chk_path), device='cpu')
+    else:
+        pretrain_chk = torch.load(chk_path, map_location=lambda storage, loc: storage)
+        state_dict = pretrain_chk.get("state_dict", pretrain_chk)
 
     # If plan recognition weights need to be excluded
     if "pretrain_exclude_pr" in cfg and cfg.pretrain_exclude_pr:
-        for key in list(pretrain_chk["state_dict"].keys()):
+        for key in list(state_dict.keys()):
             if key.startswith("plan_recognition"):
-                del pretrain_chk["state_dict"][key]
+                del state_dict[key]
 
     # Load the state dict into the model with strict=False to allow non-matching keys
-    model.load_state_dict(pretrain_chk["state_dict"], strict=False)
+    missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+    print(f"Pretrained weights loaded: {len(missing_keys)} missing, {len(unexpected_keys)} unexpected keys")
+    if missing_keys:
+        print(f"  Missing keys (first 20): {missing_keys[:20]}")
+    if unexpected_keys:
+        print(f"  Unexpected keys (first 20): {unexpected_keys[:20]}")
 
 
 def get_git_commit_hash(repo_path: Path) -> str:
