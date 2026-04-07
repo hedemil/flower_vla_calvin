@@ -47,7 +47,7 @@ if [[ -z "$WORK" ]]; then
     exit 1
 fi
 
-CODE_DIR="$FAST/flower_vla_calvin"
+CODE_DIR="$FAST/project/flower_vla_calvin"
 VENV_DIR="$WORK/venvs/flower_vla_calvin"
 HF_CACHE="$WORK/ehed0000/hf_cache"
 
