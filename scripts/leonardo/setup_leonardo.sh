@@ -226,6 +226,23 @@ setup_libero() {
     python benchmark_scripts/download_libero_datasets.py \
         --datasets all --use-huggingface
 
+    # Create libero_10 and libero_90 directories via symlinks from libero_100.
+    # The download script only creates libero_100, but the benchmark code expects
+    # separate libero_10/ and libero_90/ directories (problem_folder is hardcoded
+    # to the suite name). Symlinking all files is safe because each benchmark
+    # class only iterates over its own task list.
+    LIBERO_DATA_DIR="$WORK/data/libero"
+    if [[ -d "$LIBERO_DATA_DIR/libero_100" ]]; then
+        echo "Creating libero_10 and libero_90 symlinks from libero_100..."
+        mkdir -p "$LIBERO_DATA_DIR/libero_10" "$LIBERO_DATA_DIR/libero_90"
+        ln -sf "$LIBERO_DATA_DIR"/libero_100/* "$LIBERO_DATA_DIR/libero_10/"
+        ln -sf "$LIBERO_DATA_DIR"/libero_100/* "$LIBERO_DATA_DIR/libero_90/"
+        echo "Done (symlinked all libero_100 files into libero_10/ and libero_90/)"
+    else
+        echo "WARNING: libero_100 not found at $LIBERO_DATA_DIR/libero_100"
+        echo "  Cannot create libero_10/libero_90 symlinks"
+    fi
+
     echo ""
     echo "=== LIBERO setup complete ==="
 }
