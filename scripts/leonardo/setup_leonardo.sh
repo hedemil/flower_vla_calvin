@@ -221,27 +221,33 @@ setup_libero() {
 
     source "$VENV_DIR/bin/activate"
 
-    echo "Downloading libero_goal libero_spatial libero_object libero_100..."
+    echo "Downloading libero_goal libero_spatial libero_object..."
     cd "$CODE_DIR/LIBERO"
     python benchmark_scripts/download_libero_datasets.py \
-        --datasets all --use-huggingface
+        --datasets libero_goal --use-huggingface
+    python benchmark_scripts/download_libero_datasets.py \
+        --datasets libero_spatial --use-huggingface
+    python benchmark_scripts/download_libero_datasets.py \
+        --datasets libero_object --use-huggingface
 
-    # Create libero_10 and libero_90 directories via symlinks from libero_100.
-    # The download script only creates libero_100, but the benchmark code expects
-    # separate libero_10/ and libero_90/ directories (problem_folder is hardcoded
-    # to the suite name). Symlinking all files is safe because each benchmark
-    # class only iterates over its own task list.
+    # Download libero_10 and libero_90 directly from HuggingFace.
+    # The official download script only supports libero_100 (which doesn't exist
+    # on HF), but the HF repo has libero_10 and libero_90 as separate folders.
     LIBERO_DATA_DIR="$WORK/data/libero"
-    if [[ -d "$LIBERO_DATA_DIR/libero_100" ]]; then
-        echo "Creating libero_10 and libero_90 symlinks from libero_100..."
-        mkdir -p "$LIBERO_DATA_DIR/libero_10" "$LIBERO_DATA_DIR/libero_90"
-        ln -sf "$LIBERO_DATA_DIR"/libero_100/* "$LIBERO_DATA_DIR/libero_10/"
-        ln -sf "$LIBERO_DATA_DIR"/libero_100/* "$LIBERO_DATA_DIR/libero_90/"
-        echo "Done (symlinked all libero_100 files into libero_10/ and libero_90/)"
-    else
-        echo "WARNING: libero_100 not found at $LIBERO_DATA_DIR/libero_100"
-        echo "  Cannot create libero_10/libero_90 symlinks"
-    fi
+    echo "Downloading libero_10 and libero_90 from HuggingFace..."
+    python -c "
+from huggingface_hub import snapshot_download
+for ds in ['libero_10', 'libero_90']:
+    print(f'Downloading {ds}...')
+    snapshot_download(
+        repo_id='yifengzhu-hf/LIBERO-datasets',
+        repo_type='dataset',
+        local_dir='$LIBERO_DATA_DIR',
+        allow_patterns=f'{ds}/*',
+        local_dir_use_symlinks=False,
+    )
+    print(f'{ds} done')
+"
 
     echo ""
     echo "=== LIBERO setup complete ==="
