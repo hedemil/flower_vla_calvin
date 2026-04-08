@@ -37,7 +37,7 @@ shift 1 || true
 FAST="${LEONARDO_FAST:-${FAST:?Set LEONARDO_FAST or FAST}}"
 WORK="${LEONARDO_WORK:-${WORK:?Set LEONARDO_WORK or WORK}}"
 
-CODE_DIR="$FAST/flower_vla_calvin"
+CODE_DIR="$FAST/project/flower_vla_calvin"
 VENV_DIR="$WORK/venvs/flower_vla_calvin"
 DATA_DIR="$WORK/data/libero"
 HF_CACHE="$WORK/ehed0000/hf_cache"
