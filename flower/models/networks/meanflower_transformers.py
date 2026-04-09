@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from timm.models.vision_transformer import RmsNorm
+from jvp_flash_attention.jvp_attention import JVPAttn
 
 ###############################################################################
 # Utility Functions
@@ -170,45 +171,73 @@ class FlowerAttention(nn.Module):
                 is_causal: bool = False) -> torch.Tensor:
         """
         Forward pass for self-attention.
-        
+
         Args:
             x: Input tensor of shape [B, seq_len, dim].
             custom_attn_mask: Optional attention mask.
             is_causal: If True, applies causal masking.
-        
+
         Returns:
             Tensor of shape [B, seq_len, dim] after attention and projection.
         """
         B, T, C = x.size()
-        # Compute query, key, value and reshape for multi-head attention.
+
+        # 1. Projections & Reshaping
         qkv = self.qkv(x).reshape(B, T, 3, self.n_heads, self.head_dim).permute(2, 0, 3, 1, 4)
         q, k, v = qkv.unbind(0)
         q = self.q_norm(q)
         k = self.k_norm(k)
+
         if self.use_rope:
             q, k = apply_rotary_pos_emb(q, k, self.cos, self.sin)
-        # Build attention mask if needed.
-        # Causal masking is handled below in the elif is_causal branch.
-        if custom_attn_mask is not None:
-            mask = custom_attn_mask.unsqueeze(1).expand(-1, self.n_heads, -1, -1)
-        else:
-            mask = None
-        # Manual attention for JVP compatibility
-        attn_weights = torch.matmul(q, k.transpose(-2, -1)) * self.scale
-        
-        # ADDED: Get the current dtype for the fill value
-        fill_value = torch.tensor(float('-inf'), dtype=q.dtype, device=q.device)
 
-        if mask is not None:
-            attn_weights = attn_weights.masked_fill(~mask, fill_value)
-        elif is_causal:
-            # ALSO FIXED: Use the existing device/dtype for the causal mask creation
-            causal_mask = torch.triu(torch.ones(T, T, dtype=torch.bool, device=q.device), diagonal=1)
-            attn_weights = attn_weights.masked_fill(causal_mask, fill_value)
-        
-        attn_weights = F.softmax(attn_weights, dim=-1)
-        attn_weights = self.attn_dropout(attn_weights)
-        attn_output = torch.matmul(attn_weights, v)
+        if self.training:
+            # 2. Padding logic (T=20 -> T_p=32)
+            TILE_SIZE = 32
+            pad_len = TILE_SIZE - T if T < TILE_SIZE else 0
+
+            if pad_len > 0:
+                q = F.pad(q, (0, 0, 0, pad_len))
+                k = F.pad(k, (0, 0, 0, pad_len))
+                v = F.pad(v, (0, 0, 0, pad_len))
+
+            T_p = q.size(2) # This will be 32
+
+            # 3. Build the 4D Mask (B, H, T_p, T_p)
+            # Start with a base mask of valid tokens (True=keep, False=ignore)
+            valid_mask = torch.zeros((B, 1, 1, T_p), dtype=torch.bool, device=q.device)
+            valid_mask[..., :T] = True
+
+            if is_causal:
+                # Create a [32, 32] triangular mask
+                causal_base = torch.tril(torch.ones((T_p, T_p), dtype=torch.bool, device=q.device))
+                # Combine causal and padding: [B, 1, 32, 32]
+                mask = causal_base & valid_mask
+            elif custom_attn_mask is not None:
+                # Pad and unsqueeze user mask: [B, 1, 32, 32]
+                mask = F.pad(custom_attn_mask, (0, pad_len, 0, pad_len), value=False)
+                mask = mask.unsqueeze(1)
+            else:
+                # Simple padding mask: [B, 1, 32, 32]
+                mask = valid_mask.expand(-1, -1, T_p, -1)
+
+            # Expand the head dimension to match self.n_heads
+            mask = mask.expand(-1, self.n_heads, -1, -1)
+
+            # 4. Call JVP Attention
+            attn_output = JVPAttn.fwd_dual(q, k, v, attn_mask=mask)
+
+            # 5. Unpad
+            if pad_len > 0:
+                attn_output = attn_output[:, :, :T, :]
+        else:
+            # Inference Path
+            attn_output = torch.nn.functional.scaled_dot_product_attention(
+                q, k, v,
+                attn_mask=custom_attn_mask,
+                is_causal=is_causal and custom_attn_mask is None,
+            )
+
         out = attn_output.transpose(1, 2).reshape(B, T, C)
         out = self.resid_dropout(self.proj(out))
         return out
@@ -290,20 +319,27 @@ class FlowerCrossAttention(nn.Module):
             q, _ = apply_rotary_pos_emb(q, q, self.q_cos, self.q_sin)
             k, _ = apply_rotary_pos_emb(k, k, self.k_cos, self.k_sin)
 
-        # Manual attention for JVP compatibility
-        attn_weights = torch.matmul(q, k.transpose(-2, -1)) * self.scale
-
+        # Build attention mask: convert bool (True=valid) to float (-inf=masked) for SDPA
         if custom_attn_mask is not None:
-            # Reshape the mask to match the attention weights shape
-            mask = custom_attn_mask.unsqueeze(1).unsqueeze(2)  # [B, 1, 1, S]
-            mask = mask.expand(-1, self.n_heads, q.size(2), -1)  # [B, n_heads, T, S]
-            fill_value = torch.tensor(float('-inf'), dtype=q.dtype, device=q.device)
-            attn_weights = attn_weights.masked_fill(~mask, fill_value)
-        
-        attn_weights = F.softmax(attn_weights, dim=-1)
-        attn_weights = self.attn_dropout(attn_weights)
-        attn_output = torch.matmul(attn_weights, v)
-                                 
+            bool_mask = custom_attn_mask.unsqueeze(1).unsqueeze(2)  # [B, 1, 1, S]
+            bool_mask = bool_mask.expand(-1, self.n_heads, q.size(2), -1)  # [B, n_heads, T, S]
+            mask = torch.where(bool_mask, 0.0, float('-inf')).to(dtype=q.dtype)
+        else:
+            mask = None
+
+        if self.training:
+            # Manual attention for JVP compatibility
+            attn_weights = torch.matmul(q, k.transpose(-2, -1)) * self.scale
+            if mask is not None:
+                attn_weights = attn_weights + mask
+            attn_weights = F.softmax(attn_weights, dim=-1)
+            attn_weights = self.attn_dropout(attn_weights)
+            attn_output = torch.matmul(attn_weights, v)
+        else:
+            attn_output = F.scaled_dot_product_attention(
+                q, k, v, attn_mask=mask,
+            )
+
         out = attn_output.transpose(1, 2).reshape(B, T, C)
         out = self.resid_dropout(self.proj(out))
         return out

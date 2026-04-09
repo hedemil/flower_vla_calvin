@@ -516,7 +516,10 @@ class MeanFlowerVLA(pl.LightningModule):
         for modality_scope, dataset_batch in batch.items():
             self.modality_scope = modality_scope
             obs_features = self.encode_observations(dataset_batch)
-            act_loss, losses_dict = self.meanflow_loss(obs_features, dataset_batch["actions"])
+            if self.use_imf:
+                act_loss, losses_dict = self.imf_loss(obs_features, dataset_batch["actions"])
+            else:
+                act_loss, losses_dict = self.meanflow_loss(obs_features, dataset_batch["actions"])
             action_loss = action_loss + act_loss
             total_loss = total_loss + act_loss
             total_bs = total_bs + len(dataset_batch["actions"])
@@ -526,10 +529,16 @@ class MeanFlowerVLA(pl.LightningModule):
         # Log metrics
         self._log_training_metrics(total_loss, action_loss, total_bs, losses_dict)
         if self.global_rank == 0 and batch_idx % 1000 == 0:
-            logger.info(f"Step {self.global_step} (batch {batch_idx}) | loss={total_loss:.4f}, action_loss={action_loss:.4f}, "
-                        f"raw_mse={losses_dict['raw_mse']:.4f}, v_loss={losses_dict['v_loss']:.4f}, "
-                        f"dudt_norm={losses_dict['dudt_norm']:.4f}, cos_u_utgt={losses_dict['cos_u_utgt']:.4f}, "
-                        f"cos_u_v={losses_dict['cos_u_v']:.4f}")
+            if self.use_imf:
+                logger.info(f"Step {self.global_step} (batch {batch_idx}) | loss={total_loss:.4f}, action_loss={action_loss:.4f}, "
+                            f"loss_V={losses_dict['loss_V']:.4f}, loss_vc={losses_dict['loss_vc']:.4f}, "
+                            f"dudt_norm={losses_dict['dudt_norm']:.4f}, cos_V_v={losses_dict['cos_V_v']:.4f}, "
+                            f"cos_u_v={losses_dict['cos_u_v']:.4f}")
+            else:
+                logger.info(f"Step {self.global_step} (batch {batch_idx}) | loss={total_loss:.4f}, action_loss={action_loss:.4f}, "
+                            f"raw_mse={losses_dict['raw_mse']:.4f}, v_loss={losses_dict['v_loss']:.4f}, "
+                            f"dudt_norm={losses_dict['dudt_norm']:.4f}, cos_u_utgt={losses_dict['cos_u_utgt']:.4f}, "
+                            f"cos_u_v={losses_dict['cos_u_v']:.4f}")
 
         # Optimization step
         # opt.zero_grad()
@@ -592,10 +601,11 @@ class MeanFlowerVLA(pl.LightningModule):
         # t and h are NOT detached — the full du/dt includes ∂u/∂t (through
         # t_embedder/adaLN) and ∂u/∂h (through MeanFlowDecoder's h_embedder).
         def u_func(z_input, t_input, r_input):
-            h_input = t_input - r_input
-            t_flat = t_input.view(-1)
-            h_flat = h_input.view(-1)
-            return self.dit_forward_meanflow(z_input, t_flat, h_flat, cond)
+            with torch.amp.autocast("cuda", dtype=torch.bfloat16):
+                h_input = t_input - r_input
+                t_flat = t_input.view(-1)
+                h_flat = h_input.view(-1)
+                return self.dit_forward_meanflow(z_input, t_flat, h_flat, cond)
 
         # Tangent vectors: dz/dt = v, dt/dt = 1, dr/dt = 0
         dtdt = torch.ones_like(texp)
@@ -722,7 +732,7 @@ class MeanFlowerVLA(pl.LightningModule):
         h_zero = torch.zeros_like(t)
         with torch.no_grad():
             with torch.amp.autocast("cuda", dtype=torch.bfloat16):
-                _, v_c_tangent = self._forward_imf(z, t, h_zero, cond)
+                v_c_tangent = self._forward_v_only(z, t, h_zero, cond)
 
         # Step 2: JVP with has_aux=True — u_func returns (u, v_pred) where
         # v_pred is auxiliary (not differentiated). Matches official iMF pattern.
@@ -738,7 +748,7 @@ class MeanFlowerVLA(pl.LightningModule):
         dtdt = torch.ones_like(texp)
         drdt = torch.zeros_like(rexp)
 
-        with torch.amp.autocast("cuda", enabled=False):
+        with torch.amp.autocast("cuda", enabled=True):
             u_pred, du_dt, v_pred = torch.func.jvp(
                 u_func,
                 (z, texp, rexp),
@@ -888,6 +898,17 @@ class MeanFlowerVLA(pl.LightningModule):
         v = self.decode_velocity(cx_v, action_type, valid_dims)
 
         return u, v
+
+    def _forward_v_only(self, z: torch.Tensor, t: torch.Tensor, h: torch.Tensor, cond_dict: dict):
+        """Forward pass for v-head only: shared blocks -> v-head.
+        Used in iMF pass 1 where only v_c_tangent is needed (u_head is skipped)."""
+        cx, action_type, valid_dims, cond_kwargs = self._dit_backbone(z, t, h, cond_dict)
+
+        for block in self.v_head_blocks:
+            cx = block(cx, cond_kwargs['global_cond'], context=cond_kwargs['context'],
+                       is_causal=True, global_adaln=cond_kwargs['global_adaln'])
+
+        return self.decode_velocity(cx, action_type, valid_dims)
 
     def dit_forward_meanflow(self, z: torch.Tensor, t: torch.Tensor, h: torch.Tensor, cond_dict: dict) -> torch.Tensor:
         """Forward pass for inference: backbone + u-head + MeanFlowDecoder.
