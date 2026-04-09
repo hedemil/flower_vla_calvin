@@ -44,7 +44,7 @@ mlp_pdrop: 0.1
 # RoPE Configuration
 use_rope: true
 use_nope: false
-query_seq_len: 100
+query_seq_len: 120
 rope_theta: 32.0
 
 # Optimizer Configuration
