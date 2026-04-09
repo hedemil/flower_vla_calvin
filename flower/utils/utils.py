@@ -45,6 +45,18 @@ def initialize_pretrained_weights(model, cfg):
             if key.startswith("plan_recognition"):
                 del state_dict[key]
 
+    # Fix key mismatches (e.g., checkpoints saved with "agent." prefix)
+    remapped = {}
+    for key, value in state_dict.items():
+        new_key = key.replace("agent.", "")
+        if "vlm.language_encoder." in new_key:
+            new_key = new_key.replace("vlm.language_encoder.", "vlm.language_model.model.encoder.")
+        new_key = new_key.replace(".mlp.c_fc1.", ".mlp.fc1.")
+        new_key = new_key.replace(".mlp.c_fc2.", ".mlp.fc2.")
+        new_key = new_key.replace(".mlp.c_proj.", ".mlp.proj.")
+        remapped[new_key] = value
+    state_dict = remapped
+
     # Load the state dict into the model with strict=False to allow non-matching keys
     missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
     print(f"Pretrained weights loaded: {len(missing_keys)} missing, {len(unexpected_keys)} unexpected keys")
