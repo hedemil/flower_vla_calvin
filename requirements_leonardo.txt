@@ -57,6 +57,8 @@ robomimic==0.2.0
 robosuite==1.4.0
 bddl==1.0.1
 gym==0.25.2
+future
+thop
 
 # --- tacto deps ---
 pybullet
