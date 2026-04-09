@@ -57,6 +57,16 @@ def initialize_pretrained_weights(model, cfg):
         remapped[new_key] = value
     state_dict = remapped
 
+    # Florence-2 ties encoder.embed_tokens.weight to model.shared.weight.
+    # After deleting the decoder, the tie may break so we need to explicitly
+    # populate embed_tokens from shared (or vice versa) if one is missing.
+    shared_key = "vlm.language_model.model.shared.weight"
+    embed_key = "vlm.language_model.model.encoder.embed_tokens.weight"
+    if shared_key in state_dict and embed_key not in state_dict:
+        state_dict[embed_key] = state_dict[shared_key]
+    elif embed_key in state_dict and shared_key not in state_dict:
+        state_dict[shared_key] = state_dict[embed_key]
+
     # Load the state dict into the model with strict=False to allow non-matching keys
     missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
     print(f"Pretrained weights loaded: {len(missing_keys)} missing, {len(unexpected_keys)} unexpected keys")

@@ -233,6 +233,15 @@ class MeanFlowerVLA(pl.LightningModule):
             new_key = new_key.replace(".mlp.c_proj.", ".mlp.proj.")
             new_state_dict[new_key] = value
 
+        # Florence-2 ties encoder.embed_tokens.weight to model.shared.weight.
+        # After deleting the decoder, the tie may break — populate the missing one.
+        shared_key = "vlm.language_model.model.shared.weight"
+        embed_key = "vlm.language_model.model.encoder.embed_tokens.weight"
+        if shared_key in new_state_dict and embed_key not in new_state_dict:
+            new_state_dict[embed_key] = new_state_dict[shared_key]
+        elif embed_key in new_state_dict and shared_key not in new_state_dict:
+            new_state_dict[shared_key] = new_state_dict[embed_key]
+
         missing_keys, unexpected_keys = self.load_state_dict(new_state_dict, strict=False)
         print(f"Pretrained weights loaded:")
         if missing_keys:
