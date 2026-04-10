@@ -571,10 +571,10 @@ class MeanFlowerVLA(pl.LightningModule):
         output = {}
         with torch.no_grad():
             obs_features = self.encode_observations(batch)
-            target_actions = batch[self.target_modality]
+            target_actions = batch[self.target_modality].to(self.device)
             noise_actions = torch.randn_like(target_actions, device=self.device)
             action_pred = self.sample_actions(noise_actions, obs_features, inference=True)
-            val_loss = F.mse_loss(action_pred, target_actions)
+            val_loss = F.mse_loss(action_pred, target_actions).to(self.device)
             self._log_validation_metrics(val_loss, val_loss)
             output["validation_loss"] = val_loss / len(batch)
             return output
@@ -1261,20 +1261,20 @@ class MeanFlowerVLA(pl.LightningModule):
     def _log_training_metrics(self, total_loss, action_loss, total_bs, losses_dict=None):
         """Log training metrics."""
         self.log("train/action_loss", action_loss, on_step=False, on_epoch=True,
-                sync_dist=True, batch_size=total_bs)
+                sync_dist=False, batch_size=total_bs)
         self.log("train/total_loss", total_loss, on_step=False, on_epoch=True,
-                sync_dist=True, batch_size=total_bs)
+                sync_dist=False, batch_size=total_bs)
         if losses_dict is not None:
             for key, value in losses_dict.items():
                 self.log(f"train/{key}", value, on_step=False, on_epoch=True,
-                        sync_dist=True, batch_size=total_bs)
+                        sync_dist=False, batch_size=total_bs)
 
     def _log_validation_metrics(self, pred_loss, val_total_act_loss_pp):
         """Log validation metrics."""
         self.log(
             f"val_act/{self.modality_scope}_act_loss_pp",
             pred_loss,
-            sync_dist=True
+            sync_dist=False
         )
         try:
             n_modalities = len(self.trainer.datamodule.modalities)
@@ -1283,7 +1283,7 @@ class MeanFlowerVLA(pl.LightningModule):
         self.log(
             "val_act/action_loss",
             val_total_act_loss_pp / n_modalities,
-            sync_dist=True
+            sync_dist=False
         )
 
     def print_model_parameters(self):
