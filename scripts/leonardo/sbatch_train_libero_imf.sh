@@ -135,7 +135,7 @@ python flower/training_libero.py \
     log_dir="$CODE_DIR/logs" \
     root_data_dir="$DATA_DIR/$DATASET" \
     model="$MODEL" \
-    pretrain_chk="$PRETRAIN_CHK" \
+    +pretrain_chk="$PRETRAIN_CHK" \
     model.use_imf=True \
     model.imf_head_depth=8 \
     model.use_proprio=True \

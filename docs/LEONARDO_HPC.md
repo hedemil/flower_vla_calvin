@@ -23,6 +23,7 @@ export LEONARDO_WORK=/leonardo_work/<YOUR_ACCOUNT>
 
 # .venv
 source $LEONARDO_WORK/project/venvs/flowervla/bin/activate
+cd $LEONARDO_FAST/project/flower_vla_calvin
 
 # Rsync the repo (including submodules) to fast storage
 rsync -av --exclude='.git' --exclude='dataset' --exclude='logs' \
