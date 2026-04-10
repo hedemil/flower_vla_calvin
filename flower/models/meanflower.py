@@ -756,7 +756,7 @@ class MeanFlowerVLA(pl.LightningModule):
         dtdt = torch.ones_like(texp)
         drdt = torch.zeros_like(rexp)
 
-        with torch.amp.autocast("cuda", enabled=True):
+        with torch.amp.autocast("cuda", enabled=False):
             u_pred, du_dt, v_pred = torch.func.jvp(
                 u_func,
                 (z, texp, rexp),
