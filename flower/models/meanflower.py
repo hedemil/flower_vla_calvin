@@ -1048,8 +1048,8 @@ class MeanFlowerVLA(pl.LightningModule):
         
         # Get proprioception if enabled
         proprio = None
-        if self.use_proprio and 'proprio' in batch[self.obs_modalities]:
-            proprio = batch[self.obs_modalities]['proprio'].to(device).to(default_type)
+        if self.use_proprio and 'robot_obs' in batch:
+            proprio = batch['robot_obs'].to(device).to(default_type)
 
         return {
             'features': features,
