@@ -67,6 +67,32 @@ def initialize_pretrained_weights(model, cfg):
     elif embed_key in state_dict and shared_key not in state_dict:
         state_dict[shared_key] = state_dict[embed_key]
 
+    # Remap dit.N blocks to iMF split (shared_blocks / u_head_blocks / v_head_blocks)
+    # when loading a non-iMF checkpoint into an iMF model.
+    if getattr(model, 'use_imf', False) and any(k.startswith('dit.') for k in state_dict):
+        import re
+        head_depth = getattr(model, 'imf_head_depth', 8)
+        shared_depth = len(model.shared_blocks)
+        remapped_dit = {}
+        for key, value in list(state_dict.items()):
+            m = re.match(r'^dit\.(\d+)\.(.*)', key)
+            if m:
+                idx = int(m.group(1))
+                rest = m.group(2)
+                if idx < shared_depth:
+                    # Shared blocks: dit.0..9 -> shared_blocks.0..9
+                    remapped_dit[f'shared_blocks.{idx}.{rest}'] = value
+                    # Also initialize u_head and v_head from the last head_depth layers
+                else:
+                    head_idx = idx - shared_depth
+                    remapped_dit[f'u_head_blocks.{head_idx}.{rest}'] = value
+                    remapped_dit[f'v_head_blocks.{head_idx}.{rest}'] = value
+                del state_dict[key]
+            else:
+                continue
+        state_dict.update(remapped_dit)
+        print(f"Remapped dit blocks to iMF: {shared_depth} shared + {head_depth} u/v head layers")
+
     # Load the state dict into the model with strict=False to allow non-matching keys
     missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
     print(f"Pretrained weights loaded: {len(missing_keys)} missing, {len(unexpected_keys)} unexpected keys")
