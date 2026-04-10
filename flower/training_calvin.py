@@ -66,8 +66,6 @@ def train(cfg: DictConfig) -> None:
         
         seed_everything(cfg.seed, workers=True)
         torch.set_float32_matmul_precision('medium')
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
         # Clear CUDA cache before initialization
         clear_cuda_cache()
         

@@ -8,18 +8,18 @@
 # Examples:
 #   sbatch scripts/leonardo/sbatch_train_libero_imf.sh
 #   sbatch scripts/leonardo/sbatch_train_libero_imf.sh libero_benchmark=libero_goal
-#   For running debug jobs, you can override the partition and time limit:
-#   sbatch scripts/leonardo/sbatch_train_libero_imf.sh --partition=boost_qos_dbg --time=00:30:00
+#   #SBATCH --qos=boost_qos_dbg
 # ==============================================================================
 
 #SBATCH --job-name=imf-libero
 #SBATCH --partition=boost_usr_prod
+#SBATCH --qos=boost_qos_dbg
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
 #SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=256G
-#SBATCH --time=24:00:00
+#SBATCH --time=00:30:00
 #SBATCH --output=%x_%j.out
 #SBATCH --error=%x_%j.err
 #SBATCH --account=AIFAC_F02_024
