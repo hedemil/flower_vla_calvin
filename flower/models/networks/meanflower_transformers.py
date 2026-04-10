@@ -224,8 +224,9 @@ class FlowerAttention(nn.Module):
             # Expand the head dimension to match self.n_heads
             mask = mask.expand(-1, self.n_heads, -1, -1)
 
-            # 4. Call JVP Attention
-            attn_output = JVPAttn.fwd_dual(q, k, v, attn_mask=mask)
+            # 4. Call JVP Attention (disable autocast to avoid bf16/fp32 mismatch in Triton backward)
+            with torch.amp.autocast(device_type='cuda', enabled=False):
+                attn_output = JVPAttn.fwd_dual(q.float(), k.float(), v.float(), attn_mask=mask)
 
             # 5. Unpad
             if pad_len > 0:
