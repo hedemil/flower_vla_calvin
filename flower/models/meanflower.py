@@ -574,9 +574,8 @@ class MeanFlowerVLA(pl.LightningModule):
             target_actions = batch[self.target_modality].to(self.device)
             noise_actions = torch.randn_like(target_actions, device=self.device)
             action_pred = self.sample_actions(noise_actions, obs_features, inference=True)
-            val_loss = F.mse_loss(action_pred, target_actions).to(self.device)
-            self._log_validation_metrics(val_loss, val_loss)
-            output["validation_loss"] = val_loss / len(batch)
+            val_loss = F.mse_loss(action_pred, target_actions)
+            output["validation_loss"] = val_loss.item()
             return output
 
     # === Loss Functions ===

@@ -104,6 +104,7 @@ def train(cfg: DictConfig) -> None:
             "use_distributed_sampler": True,
             "default_root_dir": work_dir,
             "sync_batchnorm": True,
+            "num_sanity_val_steps": 0,
         }
         # Log trainer configuration and model summary
         log_rank_0(f"Trainer config for seed {cfg.seed}:\n{trainer_args}")
