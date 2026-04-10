@@ -1,0 +1,80 @@
+# iMF (improved MeanFlow) Configuration for LIBERO fine-tuning
+_target_: flower.models.meanflower.MeanFlowerVLA
+_recursive_: false
+
+# VLM Configuration
+vlm_path: microsoft/Florence-2-large
+freeze_florence: False
+freeze_vision_tower: False
+vlm_prompt_style: default
+token_dropout: 0.1
+cfg_dropout: 0.0
+
+# Model Structure
+multistep: ${multistep}
+num_sampling_steps: 1
+lowdim_obs_dim: 7
+action_dim: 7
+act_window_size: 10
+
+# Pretrained weights
+load_pretrained: False
+pretrained_model_path: null
+
+# Model flags
+use_second_view: True
+second_view_key: image_wrist
+action_type_adaln: True
+use_causal_attention: true
+use_cross_attn: True
+use_adaln_cond: false
+use_readout_token: false
+use_proprio: true
+return_act_chunk: false
+
+# DiT Configuration
+sampling_type: uniform
+dit_dim: 1024
+n_heads: 16
+n_layers: 18
+attn_pdrop: 0.0
+resid_pdrop: 0.0
+mlp_pdrop: 0.0
+
+# RoPE Configuration
+use_rope: true
+use_nope: false
+query_seq_len: 120
+rope_theta: 1000.0
+
+# Mean Flow Configuration
+noise_dist: logit_normal
+P_mean: -2.0
+P_std: 2.0
+ratio: 0.25
+norm_eps: 1e-2
+norm_p: 1.0
+
+# iMF Configuration
+use_imf: True
+imf_v_weight: 1.0
+imf_head_depth: 8
+
+# Optimizer Configuration
+optimizer_type: adamw
+
+optimizer:
+  _target_: torch.optim.AdamW
+  transformer_weight_decay: 0.05
+  learning_rate: 2e-5
+  betas: [0.9, 0.95]
+
+# Learning Rate Scheduler
+lr_scheduler:
+  lr_scheduler:
+    init_lr: 2e-5
+    init_lr_scale: 0.1
+    final_lr_scale: 0.5
+    total_steps: 50000
+    phase_ratio: "(0.05, 0.1, 0.85)"
+    lr: 2e-5

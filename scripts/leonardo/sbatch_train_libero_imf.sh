@@ -40,7 +40,7 @@ WANDB_DIR="$CODE_DIR/wandb_runs"
 PRETRAIN_CHK="$FAST/project/output/checkpoints/runs/2026-04-01/04-23-29/290000_default_weights.pt"
 
 # WandB run name
-MODEL="meanflower"
+MODEL="imf"
 DATASET="libero_10"
 DATE=$(date +%Y%m%d)
 WANDB_NAME="imf_${DATASET}_${DATE}"
@@ -136,12 +136,6 @@ python flower/training_libero.py \
     root_data_dir="$DATA_DIR/$DATASET" \
     model="$MODEL" \
     +pretrain_chk="$PRETRAIN_CHK" \
-    model.use_imf=True \
-    model.imf_head_depth=8 \
-    model.use_proprio=True \
-    model.query_seq_len=120 \
-    model.rope_theta=1000.0 \
-    model.cfg_dropout=0.0 \
     logger.name="$WANDB_NAME" \
     hydra.run.dir="$CODE_DIR/logs/runs/\${now:%Y-%m-%d}/imf_${SLURM_JOB_ID}" \
     "$@"
