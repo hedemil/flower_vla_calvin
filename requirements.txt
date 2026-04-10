@@ -1,4 +1,4 @@
---find-links https://download.pytorch.org/whl/cu116/torch_stable
+--extra-index-url https://download.pytorch.org/whl/cu128
 numpy>1.2
 hydra-core>=1.1.1
 hydra-colorlog
@@ -7,7 +7,7 @@ opencv-python
 omegaconf
 plotly
 ftfy
-torch==2.2.2
+torch>=2.10.0
 torchsde
 torchdiffeq
 pytorch-lightning==2.0.8
@@ -22,3 +22,4 @@ termcolor
 wandb
 einops_exts
 timm
+jvp_flash_attention

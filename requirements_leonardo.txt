@@ -5,9 +5,9 @@
 # Run: pip install -r requirements_leonardo.txt
 # ==============================================================================
 
-# --- PyTorch (CUDA 12.1, matches Leonardo cuda/12.1 module) ---
---extra-index-url https://download.pytorch.org/whl/cu121
-torch==2.2.2+cu121
+# --- PyTorch (CUDA 12.8) ---
+--extra-index-url https://download.pytorch.org/whl/cu128
+torch==2.10.0
 torchvision
 torchaudio
 
@@ -28,6 +28,7 @@ einops_exts
 timm
 torchsde
 torchdiffeq
+jvp_flash_attention
 
 # --- Hydra ---
 hydra-core>=1.1.1

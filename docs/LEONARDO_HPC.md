@@ -25,6 +25,8 @@ export LEONARDO_WORK=/leonardo_work/<YOUR_ACCOUNT>
 source $LEONARDO_WORK/project/venvs/flowervla/bin/activate
 cd $LEONARDO_FAST/project/flower_vla_calvin
 
+python -c "import torch; print('PyTorch:', torch.__version__); import triton; print('Triton:', triton.__version__); import jvp_flash_attention; print('jvp_flash_attention: installed')" 
+
 # Rsync the repo (including submodules) to fast storage
 rsync -av --exclude='.git' --exclude='dataset' --exclude='logs' \
     ./flower_vla_calvin/ leonardo:$FAST/flower_vla_calvin/
