@@ -162,7 +162,7 @@ class Rollout(Callback):
         outputs = [self.outputs]
         
         if pl_module.current_epoch == 0:
-            pl_module.log("tasks/average_sr", torch.tensor(0.0), on_step=False, sync_dist=True)
+            pl_module.log("tasks/average_sr", torch.tensor(0.0, device=pl_module.device), on_step=False, sync_dist=True)
         elif pl_module.current_epoch >= self.skip_epochs and (pl_module.current_epoch + 1) % self.rollout_freq == 0:
             # after first validation epoch, create task lookup dictionaries
             if self.current_epoch == pl_module.current_epoch:
