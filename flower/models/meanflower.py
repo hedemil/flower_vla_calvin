@@ -691,15 +691,15 @@ class MeanFlowerVLA(pl.LightningModule):
             loss.requires_grad_(True)
 
         losses_dict = {
-            "loss": loss.item() if not (torch.isnan(loss).any() or torch.isinf(loss).any()) else 1e6,
-            "raw_mse": raw_mse.item(),
-            "v_loss": v_loss.item() if not (torch.isnan(v_loss).any() or torch.isinf(v_loss).any()) else 1e6,
-            "dudt_norm": dudt_norm.item(),
-            "u_pred_norm": u_pred_norm.item(),
-            "u_tgt_norm": u_tgt_norm.item(),
-            "cos_u_utgt": cos_u_utgt.item(),
-            "cos_u_v": cos_u_v.item(),
-            "h_mean": h.mean().item(),
+            "loss": loss.detach() if not (torch.isnan(loss).any() or torch.isinf(loss).any()) else torch.tensor(1e6, device=loss.device),
+            "raw_mse": raw_mse,
+            "v_loss": v_loss.detach() if not (torch.isnan(v_loss).any() or torch.isinf(v_loss).any()) else torch.tensor(1e6, device=loss.device),
+            "dudt_norm": dudt_norm,
+            "u_pred_norm": u_pred_norm,
+            "u_tgt_norm": u_tgt_norm,
+            "cos_u_utgt": cos_u_utgt,
+            "cos_u_v": cos_u_v,
+            "h_mean": h.mean().detach(),
         }
 
         return loss, losses_dict
@@ -806,15 +806,15 @@ class MeanFlowerVLA(pl.LightningModule):
             loss = torch.nan_to_num(loss, nan=1e6, posinf=1e6, neginf=1e6)
 
         losses_dict = {
-            "loss": loss.item() if not (torch.isnan(loss).any() or torch.isinf(loss).any()) else 1e6,
-            "loss_V": loss_V.item(),
-            "loss_vc": loss_vc.item(),
-            "raw_mse_V": raw_mse_V.item(),
-            "raw_mse_vc": raw_mse_vc.item(),
-            "dudt_norm": dudt_norm.item(),
-            "cos_V_v": cos_V_v.item(),
-            "cos_u_v": cos_u_v.item(),
-            "h_mean": h.mean().item(),
+            "loss": loss.detach() if not (torch.isnan(loss).any() or torch.isinf(loss).any()) else torch.tensor(1e6, device=loss.device),
+            "loss_V": loss_V.detach(),
+            "loss_vc": loss_vc.detach(),
+            "raw_mse_V": raw_mse_V,
+            "raw_mse_vc": raw_mse_vc,
+            "dudt_norm": dudt_norm,
+            "cos_V_v": cos_V_v,
+            "cos_u_v": cos_u_v,
+            "h_mean": h.mean().detach(),
         }
 
         return loss, losses_dict
