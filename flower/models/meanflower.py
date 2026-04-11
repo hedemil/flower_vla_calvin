@@ -728,8 +728,8 @@ class MeanFlowerVLA(pl.LightningModule):
         texp = t.view([b] + [1] * (actions.dim() - 1)).to(dtype=default_dtype)
         rexp = r.view([b] + [1] * (actions.dim() - 1)).to(dtype=default_dtype)
 
-        # Sample noise only over valid action dimensions
-        e = torch.zeros_like(actions)
+        # Sample noise
+        e = torch.randn_like(actions)
 
         z = (1 - texp) * actions + texp * e
         v = e - actions  # data velocity (target)

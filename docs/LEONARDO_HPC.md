@@ -231,6 +231,10 @@ rsync -avP leonardo:/leonardo_scratch/fast/AIFAC_P01_047/flower_vla_calvin/logs/
 
 rsync -avP leonardo:/leonardo_scratch/fast/AIFAC_P01_047/flower_vla_calvin/logs/runs/<path to run>/.hydra ./<path to checkpoint>
 
+rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-09/flower_39468260/seed_42/saved_models/epoch=39_eval_lh/" checkpoints/flower_libero_10/
+
+rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-09/flower_39468260/" checkpoints/flower_libero_10/
+
 ```
 ## Troubleshooting
 
