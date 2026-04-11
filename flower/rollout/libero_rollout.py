@@ -220,7 +220,7 @@ class RolloutLibero(Callback):
         if pl_module.current_epoch == 0 and self.skip_epochs > 0:
             # for i in range(self.num_tasks):
             #    pl_module.log(f"eval_lh/sr_chain_{i}", torch.tensor(0.0), on_step=False, sync_dist=True)
-            pl_module.log("eval_lh/avg_seq_len", torch.tensor(0.0), on_step=False, sync_dist=True)
+            pl_module.log("eval_lh/avg_seq_len", torch.tensor(0.0, device=pl_module.device), on_step=False, sync_dist=True)
         elif pl_module.current_epoch == self.skip_epochs or ((pl_module.current_epoch - self.skip_epochs) >= 0 and (pl_module.current_epoch - self.skip_epochs) % self.rollout_freq == 0):
             successes = self.evaluate_policy(pl_module)
 
@@ -230,11 +230,11 @@ class RolloutLibero(Callback):
 
             # print(f"number of rollouts: {len(successes)}")
             log_rank_0(f"eval_lh/avg_seq_len success rate {torch.tensor(result_array)}")
-            pl_module.log("eval_lh/avg_seq_len", torch.tensor(result_array), on_epoch=True, sync_dist=True)
+            pl_module.log("eval_lh/avg_seq_len", torch.tensor(result_array, device=pl_module.device), on_epoch=True, sync_dist=True)
 
             for success, task_name in zip(successes, self.task_names):
                 log_rank_0(f"eval_lh/sr_{task_name} with success {success}")
-                pl_module.log(f"eval_lh/sr_{task_name}", success, on_step=False, sync_dist=True)
+                pl_module.log(f"eval_lh/sr_{task_name}", torch.tensor(success, device=pl_module.device) if not isinstance(success, torch.Tensor) else success.to(pl_module.device), on_step=False, sync_dist=True)
             print('done')
             print()
 
