@@ -985,10 +985,10 @@ class FLOWERVLA(pl.LightningModule):
             action_loss: Action-specific loss value
             total_bs: Total batch size
         """
-        self.log("train/action_loss", action_loss, on_step=False, on_epoch=True, 
-                sync_dist=True, batch_size=total_bs)
-        self.log("train/total_loss", total_loss, on_step=False, on_epoch=True, 
-                sync_dist=True, batch_size=total_bs)
+        self.log("train/action_loss", action_loss, on_step=True, on_epoch=True,
+                sync_dist=True, batch_size=total_bs, prog_bar=True)
+        self.log("train/total_loss", total_loss, on_step=True, on_epoch=True,
+                sync_dist=True, batch_size=total_bs, prog_bar=True)
         
     def _log_validation_metrics(self, pred_loss, val_total_act_loss_pp):
         """

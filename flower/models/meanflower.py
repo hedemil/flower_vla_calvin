@@ -1266,13 +1266,13 @@ class MeanFlowerVLA(pl.LightningModule):
 
     def _log_training_metrics(self, total_loss, action_loss, total_bs, losses_dict=None):
         """Log training metrics."""
-        self.log("train/action_loss", action_loss, on_step=False, on_epoch=True,
-                sync_dist=False, batch_size=total_bs)
-        self.log("train/total_loss", total_loss, on_step=False, on_epoch=True,
-                sync_dist=False, batch_size=total_bs)
+        self.log("train/action_loss", action_loss, on_step=True, on_epoch=True,
+                sync_dist=False, batch_size=total_bs, prog_bar=True)
+        self.log("train/total_loss", total_loss, on_step=True, on_epoch=True,
+                sync_dist=False, batch_size=total_bs, prog_bar=True)
         if losses_dict is not None:
             for key, value in losses_dict.items():
-                self.log(f"train/{key}", value, on_step=False, on_epoch=True,
+                self.log(f"train/{key}", value, on_step=True, on_epoch=True,
                         sync_dist=False, batch_size=total_bs)
 
     def _log_validation_metrics(self, pred_loss, val_total_act_loss_pp):
