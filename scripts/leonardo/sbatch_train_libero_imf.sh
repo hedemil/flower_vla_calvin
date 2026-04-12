@@ -38,7 +38,7 @@ HF_CACHE="$WORK/ehed0000/hf_cache"
 WANDB_DIR="$CODE_DIR/wandb_runs"
 
 # iMF pretrained checkpoint
-PRETRAIN_CHK="$FAST/project/output/checkpoints/runs/2026-04-06/13-24-18/checkpoint_290000/model.safetensors"
+PRETRAIN_CHK="$WORK/checkpoints/pretrained/imf_checkpoint_290000.safetensors"
 
 # WandB run name
 MODEL="imf"
@@ -125,6 +125,23 @@ echo "Hydra args:    $*"
 echo "============================================"
 
 mkdir -p "$WANDB_DIR"
+mkdir -p "$WORK/flower_logs"
+
+# ---------------------
+# Disk diagnostics (from compute node)
+# ---------------------
+echo "=== Disk diagnostics from compute node ==="
+echo "--- df -h ---"
+df -h /leonardo_scratch /leonardo_work /tmp 2>/dev/null || true
+echo "--- Lustre quota (user) ---"
+lfs quota -h -u "$USER" /leonardo_scratch 2>/dev/null || true
+echo "--- Lustre quota (group) ---"
+lfs quota -h -g AIFAC_F02_024 /leonardo_scratch 2>/dev/null || true
+echo "--- du project dir ---"
+du -sh "$FAST/project/flower_vla_calvin/"* 2>/dev/null || true
+echo "--- du FAST root ---"
+du -sh "$FAST"/* 2>/dev/null || true
+echo "=========================================="
 
 # ---------------------
 # Launch training
@@ -138,7 +155,7 @@ srun python flower/training_libero.py \
     model="$MODEL" \
     +pretrain_chk="$PRETRAIN_CHK" \
     logger.name="$WANDB_NAME" \
-    hydra.run.dir="$CODE_DIR/logs/runs/\${now:%Y-%m-%d}/imf_${SLURM_JOB_ID}" \
+    hydra.run.dir="$WORK/flower_logs/runs/\${now:%Y-%m-%d}/imf_${SLURM_JOB_ID}" \
     "$@"
 
 echo ""

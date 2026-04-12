@@ -39,7 +39,7 @@ HF_CACHE="$WORK/ehed0000/hf_cache"
 WANDB_DIR="$CODE_DIR/wandb_runs"
 
 # iMF pretrained checkpoint
-PRETRAIN_CHK="$FAST/project/output/checkpoints/runs/2026-04-06/13-24-18/checkpoint_290000/model.safetensors"
+PRETRAIN_CHK="$WORK/checkpoints/pretrained/imf_checkpoint_290000.safetensors"
 
 # WandB run name
 MODEL="imf"
