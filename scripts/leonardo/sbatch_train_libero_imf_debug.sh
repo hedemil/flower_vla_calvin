@@ -128,6 +128,22 @@ echo "============================================"
 mkdir -p "$WANDB_DIR"
 
 # ---------------------
+# Disk diagnostics (from compute node)
+# ---------------------
+echo "=== Disk diagnostics from compute node ==="
+echo "--- df -h ---"
+df -h /leonardo_scratch /leonardo_work /tmp 2>/dev/null || true
+echo "--- Lustre quota (user) ---"
+lfs quota -h -u "$USER" /leonardo_scratch 2>/dev/null || true
+echo "--- Lustre quota (group) ---"
+lfs quota -h -g AIFAC_F02_024 /leonardo_scratch 2>/dev/null || true
+echo "--- du project dir ---"
+du -sh "$FAST/project/flower_vla_calvin/"* 2>/dev/null || true
+echo "--- du FAST root ---"
+du -sh "$FAST"/* 2>/dev/null || true
+echo "=========================================="
+
+# ---------------------
 # Launch training
 # ---------------------
 cd "$CODE_DIR"
@@ -140,6 +156,7 @@ srun python flower/training_libero.py \
     +pretrain_chk="$PRETRAIN_CHK" \
     logger.name="$WANDB_NAME" \
     hydra.run.dir="$CODE_DIR/logs/runs/\${now:%Y-%m-%d}/imf_${SLURM_JOB_ID}" \
+    callbacks.checkpoint.every_n_epochs=1 \
     "$@"
 
 echo ""
