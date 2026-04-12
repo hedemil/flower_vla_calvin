@@ -41,7 +41,7 @@ class LearningRateScheduler(_LRScheduler):
     @staticmethod
     def set_lr(optimizer, lr):
         for g in optimizer.param_groups:
-            g["lr"] = lr
+            g["lr"] = lr * g.get("lr_scale", 1.0)
 
     def get_lr(self):
         for g in self.optimizer.param_groups:

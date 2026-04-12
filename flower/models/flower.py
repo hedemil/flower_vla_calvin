@@ -422,22 +422,29 @@ class FLOWERVLA(pl.LightningModule):
         }
 
     def _get_param_groups(self):
-        """Get parameter groups for optimizer"""
+        """Get parameter groups for optimizer with separate DiT/VLM settings."""
         no_decay = ['bias', 'LayerNorm', 'layernorm', 'ln', 'norm']
-        decay_group = []
-        no_decay_group = []
+        vlm_lr_scale = getattr(self.optimizer_config, 'vlm_lr_scale', 1.0)
+        vlm_wd = getattr(self.optimizer_config, 'vlm_weight_decay', self.optimizer_config.transformer_weight_decay)
 
-        # Collect all parameters, excluding VLM if frozen
+        dit_decay, dit_no_decay = [], []
+        vlm_decay, vlm_no_decay = [], []
+
         for name, param in self.named_parameters():
-            if param.requires_grad:
-                if any(nd in name.lower() for nd in no_decay):
-                    no_decay_group.append(param)
-                else:
-                    decay_group.append(param)
+            if not param.requires_grad:
+                continue
+            is_vlm = name.startswith('vlm.')
+            is_no_decay = any(nd in name.lower() for nd in no_decay)
+            if is_vlm:
+                (vlm_no_decay if is_no_decay else vlm_decay).append(param)
+            else:
+                (dit_no_decay if is_no_decay else dit_decay).append(param)
 
         return [
-            {"params": decay_group, "weight_decay": self.optimizer_config.transformer_weight_decay},
-            {"params": no_decay_group, "weight_decay": 0.0}
+            {"params": dit_decay, "weight_decay": self.optimizer_config.transformer_weight_decay, "lr_scale": 1.0},
+            {"params": dit_no_decay, "weight_decay": 0.0, "lr_scale": 1.0},
+            {"params": vlm_decay, "weight_decay": vlm_wd, "lr_scale": vlm_lr_scale},
+            {"params": vlm_no_decay, "weight_decay": 0.0, "lr_scale": vlm_lr_scale},
         ]
 
     def training_step(self, batch: Dict[str, Dict], batch_idx: int) -> torch.Tensor:

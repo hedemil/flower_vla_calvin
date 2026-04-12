@@ -23,7 +23,7 @@ obs_seq_len: 1
 act_seq_len: 10
 multistep: ${act_seq_len}
 p_last_state: 0
-max_epochs: 40
+max_epochs: 120
 rollout_lh_skip_epochs: 19  # was 9
 num_workers: 1
 benchmark_name: ${libero_benchmark} # calvin_abcd
@@ -37,7 +37,7 @@ trainer:
   sync_batchnorm: True
   accelerator: gpu
   strategy: "ddp_find_unused_parameters_true"
-  accumulate_grad_batches: 4  # Simulates effective batch_size=32 
+  accumulate_grad_batches: 4  # Simulates effective batch_size=32
   limit_train_batches: 1000
   limit_val_batches: 4
 
