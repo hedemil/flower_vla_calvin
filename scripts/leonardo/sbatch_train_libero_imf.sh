@@ -14,9 +14,9 @@
 #SBATCH --job-name=imf-libero
 #SBATCH --partition=boost_usr_prod
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=4
+#SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-node=4
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=32
 #SBATCH --mem=256G
 #SBATCH --time=24:00:00
 #SBATCH --output=%x_%j.out
@@ -125,37 +125,20 @@ echo "Hydra args:    $*"
 echo "============================================"
 
 mkdir -p "$WANDB_DIR"
-mkdir -p "$WORK/flower_logs"
-
-# ---------------------
-# Disk diagnostics (from compute node)
-# ---------------------
-echo "=== Disk diagnostics from compute node ==="
-echo "--- df -h ---"
-df -h /leonardo_scratch /leonardo_work /tmp 2>/dev/null || true
-echo "--- Lustre quota (user) ---"
-lfs quota -h -u "$USER" /leonardo_scratch 2>/dev/null || true
-echo "--- Lustre quota (group) ---"
-lfs quota -h -g AIFAC_F02_024 /leonardo_scratch 2>/dev/null || true
-echo "--- du project dir ---"
-du -sh "$FAST/project/flower_vla_calvin/"* 2>/dev/null || true
-echo "--- du FAST root ---"
-du -sh "$FAST"/* 2>/dev/null || true
-echo "=========================================="
 
 # ---------------------
 # Launch training
 # ---------------------
 cd "$CODE_DIR"
 
-srun python flower/training_libero.py \
+python flower/training_libero.py \
     devices=4 \
     log_dir="$CODE_DIR/logs" \
     root_data_dir="$DATA_DIR/$DATASET" \
     model="$MODEL" \
     +pretrain_chk="$PRETRAIN_CHK" \
     logger.name="$WANDB_NAME" \
-    hydra.run.dir="$WORK/flower_logs/runs/\${now:%Y-%m-%d}/imf_${SLURM_JOB_ID}" \
+    hydra.run.dir="$CODE_DIR/logs/runs/\${now:%Y-%m-%d}/imf_${SLURM_JOB_ID}" \
     "$@"
 
 echo ""

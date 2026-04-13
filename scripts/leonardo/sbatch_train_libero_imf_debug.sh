@@ -15,9 +15,9 @@
 #SBATCH --partition=boost_usr_prod
 #SBATCH --qos=boost_qos_dbg
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=4
+#SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-node=4
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=32
 #SBATCH --mem=256G
 #SBATCH --time=00:30:00
 #SBATCH --output=%x_%j.out
@@ -128,46 +128,18 @@ echo "============================================"
 mkdir -p "$WANDB_DIR"
 
 # ---------------------
-# Disk diagnostics (from compute node)
-# ---------------------
-echo "=== Disk diagnostics from compute node ==="
-echo "--- df -h ---"
-df -h /leonardo_scratch /leonardo_work /tmp 2>/dev/null || true
-echo "--- Lustre quota (user) ---"
-lfs quota -h -u "$USER" /leonardo_scratch 2>/dev/null || true
-echo "--- Lustre quota (group) ---"
-lfs quota -h -g AIFAC_F02_024 /leonardo_scratch 2>/dev/null || true
-echo "--- du project dir ---"
-du -sh "$FAST/project/flower_vla_calvin/"* 2>/dev/null || true
-echo "--- du FAST root ---"
-du -sh "$FAST"/* 2>/dev/null || true
-echo "=========================================="
-
-# ---------------------
-# Pre-flight write test
-# ---------------------
-OUTPUT_DIR="$WORK/flower_logs/runs/imf_${SLURM_JOB_ID}"
-mkdir -p "$OUTPUT_DIR"
-
-echo "=== Pre-flight write test ==="
-echo "Writing 1GB test file to $OUTPUT_DIR ..."
-dd if=/dev/zero of="$OUTPUT_DIR/write_test.bin" bs=1M count=1024 2>&1 && echo "WRITE TEST PASSED" || echo "WRITE TEST FAILED"
-rm -f "$OUTPUT_DIR/write_test.bin"
-echo "=========================================="
-
-# ---------------------
 # Launch training
 # ---------------------
 cd "$CODE_DIR"
 
-srun python flower/training_libero.py \
+python flower/training_libero.py \
     devices=4 \
-    log_dir="$OUTPUT_DIR" \
+    log_dir="$CODE_DIR/logs" \
     root_data_dir="$DATA_DIR/$DATASET" \
     model="$MODEL" \
     +pretrain_chk="$PRETRAIN_CHK" \
     logger.name="$WANDB_NAME" \
-    hydra.run.dir="$OUTPUT_DIR" \
+    hydra.run.dir="$CODE_DIR/logs/runs/\${now:%Y-%m-%d}/imf_${SLURM_JOB_ID}" \
     callbacks.checkpoint.every_n_epochs=1 \
     "$@"
 
