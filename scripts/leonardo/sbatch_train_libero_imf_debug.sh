@@ -165,7 +165,7 @@ srun python flower/training_libero.py \
     logger.name="$WANDB_NAME" \
     hydra.run.dir="$CODE_DIR/logs/runs/\${now:%Y-%m-%d}/imf_${SLURM_JOB_ID}" \
     callbacks.checkpoint.every_n_epochs=1 \
-    callbacks.checkpoint.save_weights_only=True \
+    +callbacks.checkpoint.save_weights_only=True \
     "$@"
 
 echo "--- Memory after training ---"
