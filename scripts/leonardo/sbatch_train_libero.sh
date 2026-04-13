@@ -14,9 +14,9 @@
 #SBATCH --job-name=flower-libero
 #SBATCH --partition=boost_usr_prod
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=1
+#SBATCH --ntasks-per-node=4
 #SBATCH --gpus-per-node=4
-#SBATCH --cpus-per-task=32
+#SBATCH --cpus-per-task=8
 #SBATCH --mem=256G
 #SBATCH --time=24:00:00
 #SBATCH --output=%x_%j.out
@@ -127,7 +127,7 @@ mkdir -p "$WANDB_DIR"
 # ---------------------
 cd "$CODE_DIR"
 
-python flower/training_libero.py \
+srun python flower/training_libero.py \
     devices=4 \
     log_dir="$CODE_DIR/logs" \
     root_data_dir="$DATA_DIR/$DATASET" \
