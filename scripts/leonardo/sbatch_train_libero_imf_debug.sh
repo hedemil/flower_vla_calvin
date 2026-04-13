@@ -143,9 +143,12 @@ echo "--- df -h ---"
 df -h /leonardo_scratch /leonardo_work /tmp 2>/dev/null || true
 echo "--- du project dir ---"
 du -sh "$CODE_DIR/logs" "$CODE_DIR/wandb_runs" 2>/dev/null || true
-echo "--- Write test (5GB to scratch) ---"
-dd if=/dev/zero of="$CODE_DIR/logs/write_test.bin" bs=1M count=5120 2>&1 && echo "5GB WRITE TEST PASSED" || echo "5GB WRITE TEST FAILED"
-rm -f "$CODE_DIR/logs/write_test.bin"
+echo "--- /dev/shm usage ---"
+df -h /dev/shm 2>/dev/null || true
+echo "--- Memory before training ---"
+free -h
+echo "--- Pretrained checkpoint size ---"
+ls -lh "$PRETRAIN_CHK"
 echo "=========================================="
 
 # ---------------------
@@ -162,7 +165,15 @@ srun python flower/training_libero.py \
     logger.name="$WANDB_NAME" \
     hydra.run.dir="$CODE_DIR/logs/runs/\${now:%Y-%m-%d}/imf_${SLURM_JOB_ID}" \
     callbacks.checkpoint.every_n_epochs=1 \
+    callbacks.checkpoint.save_weights_only=True \
     "$@"
+
+echo "--- Memory after training ---"
+free -h
+echo "--- /dev/shm after training ---"
+df -h /dev/shm 2>/dev/null || true
+echo "--- /tmp after training ---"
+du -sh /tmp/* 2>/dev/null || true
 
 echo ""
 echo "Job $SLURM_JOB_ID finished at $(date)"
