@@ -128,6 +128,27 @@ echo "============================================"
 mkdir -p "$WANDB_DIR"
 
 # ---------------------
+# Disk / quota diagnostics
+# ---------------------
+echo "=== Quota diagnostics ==="
+echo "--- SCRATCH user quota ---"
+lfs quota -h -u "$USER" /leonardo_scratch 2>/dev/null || true
+echo "--- SCRATCH group quota ---"
+lfs quota -h -g AIFAC_F02_024 /leonardo_scratch 2>/dev/null || true
+echo "--- WORK user quota ---"
+lfs quota -h -u "$USER" /leonardo_work 2>/dev/null || true
+echo "--- WORK group quota ---"
+lfs quota -h -g AIFAC_F02_024 /leonardo_work 2>/dev/null || true
+echo "--- df -h ---"
+df -h /leonardo_scratch /leonardo_work /tmp 2>/dev/null || true
+echo "--- du project dir ---"
+du -sh "$CODE_DIR/logs" "$CODE_DIR/wandb_runs" 2>/dev/null || true
+echo "--- Write test (5GB to scratch) ---"
+dd if=/dev/zero of="$CODE_DIR/logs/write_test.bin" bs=1M count=5120 2>&1 && echo "5GB WRITE TEST PASSED" || echo "5GB WRITE TEST FAILED"
+rm -f "$CODE_DIR/logs/write_test.bin"
+echo "=========================================="
+
+# ---------------------
 # Launch training
 # ---------------------
 cd "$CODE_DIR"
