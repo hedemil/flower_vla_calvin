@@ -134,6 +134,7 @@ srun python flower/training_libero.py \
     model="$MODEL" \
     logger.name="$WANDB_NAME" \
     hydra.run.dir="$CODE_DIR/logs/runs/\${now:%Y-%m-%d}/${MODEL}_${SLURM_JOB_ID}" \
+    +callbacks.checkpoint.save_weights_only=True \
     "$@"
 
 echo ""
