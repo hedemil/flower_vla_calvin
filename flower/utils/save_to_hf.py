@@ -74,7 +74,7 @@ with open(os.path.join(model_path, "config.json")) as f:
 model = hydra.utils.instantiate(config.model_config)
 
 # Load weights
-state_dict = torch.load(os.path.join(model_path, "model.pt"))
+state_dict = torch.load(os.path.join(model_path, "model.pt"), weights_only=False)
 model.load_state_dict(state_dict)
 ```
 
@@ -114,7 +114,7 @@ def main(cfg: DictConfig):
         ckpt_path = os.path.join(ckpt_path, sorted(ckpt_files)[-1])
     
     print(f"Loading checkpoint from {ckpt_path}")
-    checkpoint = torch.load(ckpt_path, map_location='cpu')
+    checkpoint = torch.load(ckpt_path, map_location='cpu', weights_only=False)
     
     # Clean up the state dict
     state_dict = checkpoint['state_dict']

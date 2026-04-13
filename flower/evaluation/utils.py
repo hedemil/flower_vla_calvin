@@ -96,7 +96,7 @@ def load_pl_module_from_checkpoint(
     model = module_class.load_from_checkpoint(ckpt_path, **load_cfg)
      # Load EMA weights if they exist and the flag is set
     if use_ema_weights:
-        checkpoint_data = torch.load(ckpt_path)
+        checkpoint_data = torch.load(ckpt_path, weights_only=False)
         if "ema_weights" in checkpoint_data['callbacks']['EMA']:
             ema_weights_list = checkpoint_data['callbacks']['EMA']['ema_weights']
 

@@ -186,7 +186,7 @@ class MeanFlowerVLA(pl.LightningModule):
             state_dict = load_file(pretrained_model_path, device=str(self.device))
             checkpoint = {"state_dict": state_dict}
         else:
-            checkpoint = torch.load(pretrained_model_path, map_location=self.device)
+            checkpoint = torch.load(pretrained_model_path, map_location=self.device, weights_only=False)
             state_dict = checkpoint.get("state_dict", checkpoint)
 
         state_dict = checkpoint.get("state_dict", checkpoint)

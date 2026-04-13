@@ -168,7 +168,7 @@ class EMA(Callback):
                 return
             ema_path = trainer.ckpt_path.replace(ext, f'-EMA{ext}')
             if os.path.exists(ema_path):
-                ema_state_dict = torch.load(ema_path, map_location=torch.device('cpu'))
+                ema_state_dict = torch.load(ema_path, map_location=torch.device('cpu'), weights_only=False)
                 self._ema_model_weights = ema_state_dict['state_dict'].values()
                 del ema_state_dict
                 logging.info("EMA weights have been loaded successfully. Continuing training with saved EMA weights.")

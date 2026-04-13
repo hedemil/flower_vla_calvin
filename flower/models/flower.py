@@ -168,7 +168,7 @@ class FLOWERVLA(pl.LightningModule):
             print("Loaded safetensors file")
         else:
             # Load PyTorch checkpoint (.pt, .pth, .ckpt)
-            checkpoint = torch.load(pretrained_model_path, map_location=self.device)
+            checkpoint = torch.load(pretrained_model_path, map_location=self.device, weights_only=False)
             # Extract the state dict (handle PyTorch Lightning or plain models)
             state_dict = checkpoint.get("state_dict", checkpoint)
 

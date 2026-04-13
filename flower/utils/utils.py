@@ -36,7 +36,7 @@ def initialize_pretrained_weights(model, cfg):
         from safetensors.torch import load_file
         state_dict = load_file(str(chk_path), device='cpu')
     else:
-        pretrain_chk = torch.load(chk_path, map_location=lambda storage, loc: storage)
+        pretrain_chk = torch.load(chk_path, map_location=lambda storage, loc: storage, weights_only=False)
         state_dict = pretrain_chk.get("state_dict", pretrain_chk)
 
     # If plan recognition weights need to be excluded
