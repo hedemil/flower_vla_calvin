@@ -13,6 +13,7 @@
 
 #SBATCH --job-name=imf-libero
 #SBATCH --partition=boost_usr_prod
+#SBATCH --qos=boost_qos_lprod
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
 #SBATCH --gpus-per-node=4
