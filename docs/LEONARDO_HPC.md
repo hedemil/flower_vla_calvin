@@ -227,13 +227,21 @@ rsync -av --delete conf/    leonardo:$FAST/flower_vla_calvin/conf/
 
 ## 9. Download checkpoint
 ```bash
-rsync -avP leonardo:/leonardo_scratch/fast/AIFAC_P01_047/flower_vla_calvin/logs/runs/<path to checkpoint> ./<download dir>
+rsync -avP leonardo:/leonardo_scratch/fast/AIFAC_F02_024/flower_vla_calvin/logs/runs/<path to checkpoint> ./<download dir>
 
-rsync -avP leonardo:/leonardo_scratch/fast/AIFAC_P01_047/flower_vla_calvin/logs/runs/<path to run>/.hydra ./<path to checkpoint>
+rsync -avP leonardo:/leonardo_scratch/fast/AIFAC_F02_024/flower_vla_calvin/logs/runs/<path to run>/.hydra ./<path to checkpoint>
 
-rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-09/flower_39468260/seed_42/saved_models/epoch=39_eval_lh/" checkpoints/flower_libero_10/
+# Download epoch 109 checkpoint Flower libero_10 %
+rsync -avP leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-14/flower_39829244/saved_models/epoch=109_eval_lh checkpoints/flower/libero_10/
 
-rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-09/flower_39468260/" checkpoints/flower_libero_10/
+# Download hydra config Flower libero_10 %
+rsync -avP leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-14/flower_39829244/.hydra checkpoints/flower/libero_10/
+
+# Download best checkpoint (epoch 99) Flower libero_spatial
+rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-13/flower_39763611/saved_models/epoch=99_eval_lh" checkpoints/flower/libero_spatial/
+
+# Download hydra config Flower libero_spatial
+rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-13/flower_39763611/.hydra" checkpoints/flower/libero_spatial/
 
 ```
 ## Troubleshooting

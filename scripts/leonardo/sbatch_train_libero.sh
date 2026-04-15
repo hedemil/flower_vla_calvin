@@ -131,6 +131,7 @@ srun python flower/training_libero.py \
     devices=4 \
     log_dir="$CODE_DIR/logs" \
     root_data_dir="$DATA_DIR/$DATASET" \
+    libero_benchmark="$DATASET" \
     model="$MODEL" \
     logger.name="$WANDB_NAME" \
     hydra.run.dir="$CODE_DIR/logs/runs/\${now:%Y-%m-%d}/${MODEL}_${SLURM_JOB_ID}" \

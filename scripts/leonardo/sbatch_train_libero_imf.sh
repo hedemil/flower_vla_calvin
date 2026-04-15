@@ -18,7 +18,7 @@
 #SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=256G
-#SBATCH --time=24:00:00
+#SBATCH --time=1-12:00:00
 #SBATCH --output=%x_%j.out
 #SBATCH --error=%x_%j.err
 #SBATCH --account=AIFAC_F02_024
@@ -135,6 +135,7 @@ srun python flower/training_libero.py \
     devices=4 \
     log_dir="$CODE_DIR/logs" \
     root_data_dir="$DATA_DIR/$DATASET" \
+    libero_benchmark="$DATASET" \
     model="$MODEL" \
     +pretrain_chk="$PRETRAIN_CHK" \
     logger.name="$WANDB_NAME" \
