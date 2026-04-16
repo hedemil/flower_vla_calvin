@@ -237,12 +237,29 @@ rsync -avP leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calv
 # Download hydra config Flower libero_10 %
 rsync -avP leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-14/flower_39829244/.hydra checkpoints/flower/libero_10/
 
-# Download best checkpoint (epoch 99) Flower libero_spatial
+# Download best checkpoint (epoch 99) Flower libero_spatial %
 rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-13/flower_39763611/saved_models/epoch=99_eval_lh" checkpoints/flower/libero_spatial/
 
-# Download hydra config Flower libero_spatial
+# Download hydra config Flower libero_spatial %
 rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-13/flower_39763611/.hydra" checkpoints/flower/libero_spatial/
 
+# Download best checkpoint (epoch 89) iMF libero_spatial %
+rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-14/imf_39829339/saved_models/epoch=89_eval_lh" checkpoints/meanflower/libero_spatial/
+
+# Download hydra config iMF libero_spatial %
+rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-14/imf_39829339/.hydra" checkpoints/meanflower/libero_spatial/
+
+# Download best checkpoint (epoch 109) Flower libero_goal %
+rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-15/flower_39877274/saved_models/epoch=109_eval_lh" checkpoints/flower/libero_goal/
+
+# Download hydra config Flower libero_goal %
+rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-15/flower_39877274/.hydra" checkpoints/flower/libero_goal/
+
+# Download best checkpoint (epoch 29) Flower libero_object %
+rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-15/flower_39921960/saved_models/epoch=29_eval_lh" checkpoints/flower/libero_object/
+
+# Download hydra config Flower libero_object
+rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-15/flower_39921960/.hydra" checkpoints/flower/libero_object/
 ```
 ## Troubleshooting
 
