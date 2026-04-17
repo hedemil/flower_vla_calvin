@@ -6,6 +6,16 @@ Guide for running FLOWER VLA training on Leonardo using a Python venv and SLURM.
 
 ---
 
+# Re-generate certificate after 12 hrs
+```bash
+step ssh login 'emhed@kth.se' --provisioner cineca-hpc
+```
+
+## Login to LEONARDO
+```bash
+ssh ehed0000@login.leonardo.cineca.it
+```
+
 ## Prerequisites
 
 - Access to Leonardo with a valid compute account
@@ -258,8 +268,26 @@ rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_cal
 # Download best checkpoint (epoch 29) Flower libero_object %
 rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-15/flower_39921960/saved_models/epoch=29_eval_lh" checkpoints/flower/libero_object/
 
-# Download hydra config Flower libero_object
+# Download hydra config Flower libero_object %
 rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-15/flower_39921960/.hydra" checkpoints/flower/libero_object/
+
+# Download best checkpoint (epoch 89) iMF libero_10 %
+rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-15/imf_39878497/saved_models/epoch=89_eval_lh" checkpoints/meanflower/libero_10/
+
+# Download hydra config iMF libero_10 %
+rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-15/imf_39878497/.hydra" checkpoints/meanflower/libero_10/
+
+# Download best checkpoint (epoch 99) iMF libero_goal %
+rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-15/imf_39908191/saved_models/epoch=19_eval_lh" checkpoints/meanflower/libero_goal/
+
+# Download hydra config iMF libero_goal
+rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-15/imf_39908191/.hydra" checkpoints/meanflower/libero_goal/
+
+# Download best checkpoint (epoch 109) iMF libero_spatial
+rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-15/imf_39921929/saved_models/epoch=109_eval_lh" checkpoints/meanflower/libero_spatial/
+
+# Download hydra config iMF libero_spatial
+rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-15/imf_39921929/.hydra" checkpoints/meanflower/libero_spatial/
 ```
 ## Troubleshooting
 
