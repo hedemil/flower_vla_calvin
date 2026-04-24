@@ -52,8 +52,8 @@ else
     NUM_SAMPLING_STEPS=4
 fi
 
-# Checkpoint directory: checkpoints/<benchmark>/<model>/
-CHECKPOINT_DIR="/workspace/flower_vla_calvin/checkpoints/${BENCHMARK}/${MODEL}"
+# Checkpoint directory: checkpoints/<model>/<benchmark>/
+CHECKPOINT_DIR="/workspace/flower_vla_calvin/checkpoints/${MODEL}/${BENCHMARK}"
 echo "Checkpoint Directory: $CHECKPOINT_DIR"
 
 # Check if checkpoint exists
@@ -61,7 +61,7 @@ if [ ! -d "$CHECKPOINT_DIR" ] || [ ! "$(ls -A $CHECKPOINT_DIR)" ]; then
     echo "ERROR: Checkpoint not found at: $CHECKPOINT_DIR"
     echo ""
     echo "Expected structure:"
-    echo "  checkpoints/${BENCHMARK}/${MODEL}/"
+    echo "  checkpoints/${MODEL}/${BENCHMARK}/"
     echo "    ├── .hydra/config.yaml"
     echo "    └── model.ckpt (or model.safetensors)"
     exit 1

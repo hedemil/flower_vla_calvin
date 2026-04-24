@@ -280,14 +280,20 @@ rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_cal
 # Download best checkpoint (epoch 99) iMF libero_goal %
 rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-15/imf_39908191/saved_models/epoch=19_eval_lh" checkpoints/meanflower/libero_goal/
 
-# Download hydra config iMF libero_goal
+# Download hydra config iMF libero_goal %
 rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-15/imf_39908191/.hydra" checkpoints/meanflower/libero_goal/
 
-# Download best checkpoint (epoch 109) iMF libero_spatial
+# Download best checkpoint (epoch 109) iMF libero_spatial %
 rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-15/imf_39921929/saved_models/epoch=109_eval_lh" checkpoints/meanflower/libero_spatial/
 
-# Download hydra config iMF libero_spatial
+# Download hydra config iMF libero_spatial %
 rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-15/imf_39921929/.hydra" checkpoints/meanflower/libero_spatial/
+
+# Download best checkpoint (epoch 119) iMF libero_object %
+rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-17/imf_40050147/saved_models/epoch=119_eval_lh" checkpoints/meanflower/libero_object/
+
+# Download hydra config iMF libero_object
+rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_calvin/logs/runs/2026-04-17/imf_40050147/.hydra" checkpoints/meanflower/libero_object/
 ```
 ## Troubleshooting
 
