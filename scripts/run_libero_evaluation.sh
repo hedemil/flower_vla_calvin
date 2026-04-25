@@ -38,22 +38,22 @@ if [[ ! " ${VALID_BENCHMARKS[@]} " =~ " ${BENCHMARK} " ]]; then
 fi
 
 # Validate model
-VALID_MODELS=("flower" "meanflower")
+VALID_MODELS=("flower" "meanflower" "imf" "decoupled_meanflower")
 if [[ ! " ${VALID_MODELS[@]} " =~ " ${MODEL} " ]]; then
     echo "ERROR: Invalid model: $MODEL"
     echo "Valid options: ${VALID_MODELS[@]}"
     exit 1
 fi
 
-# Set num_sampling_steps based on model
-if [[ "$MODEL" == "meanflower" ]]; then
-    NUM_SAMPLING_STEPS=1
-else
+# Set num_sampling_steps based on model (1 for single-step variants, 4 for FLOWER)
+if [[ "$MODEL" == "flower" ]]; then
     NUM_SAMPLING_STEPS=4
+else
+    NUM_SAMPLING_STEPS=1
 fi
 
 # Checkpoint directory: checkpoints/<model>/<benchmark>/
-CHECKPOINT_DIR="/workspace/flower_vla_calvin/checkpoints/${MODEL}/${BENCHMARK}"
+CHECKPOINT_DIR="${SCRIPT_DIR}/../checkpoints/${MODEL}/${BENCHMARK}"
 echo "Checkpoint Directory: $CHECKPOINT_DIR"
 
 # Check if checkpoint exists
@@ -93,7 +93,7 @@ if [ ! -f "$TRAIN_FOLDER" ]; then
 fi
 
 # Check if LIBERO dataset exists
-LIBERO_DATASET_DIR="/workspace/flower_vla_calvin/LIBERO/libero/datasets/${BENCHMARK}"
+LIBERO_DATASET_DIR="${SCRIPT_DIR}/../LIBERO/libero/datasets/${BENCHMARK}"
 if [ ! -d "$LIBERO_DATASET_DIR" ] || [ ! "$(ls -A $LIBERO_DATASET_DIR)" ]; then
     echo "WARNING: LIBERO dataset not found at: $LIBERO_DATASET_DIR"
     echo "  LIBERO benchmark API may still work if ~/.libero/config.yaml is set."

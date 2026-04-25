@@ -172,3 +172,10 @@ evaluation_videos/
 
 # Checkpoints
 checkpoints/
+
+# Weights & Biases
+wandb/
+wandb_runs/
+
+# Compiled artifacts under tools/
+tools/**/__pycache__/
