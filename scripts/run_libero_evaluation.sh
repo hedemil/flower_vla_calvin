@@ -111,12 +111,12 @@ echo ""
 
 # Run evaluation with Hydra
 python flower/evaluation/flower_eval_libero.py \
-    train_folder="$TRAIN_FOLDER" \
-    checkpoint="$CKPT_FILE" \
+    train_folder="'$TRAIN_FOLDER'" \
+    checkpoint="'$CKPT_FILE'" \
     benchmark_name="$BENCHMARK" \
     num_sampling_steps="$NUM_SAMPLING_STEPS" \
     eval_cfg_overwrite.model.num_sampling_steps="$NUM_SAMPLING_STEPS" \
-    log_dir="${SCRIPT_DIR}/evaluation/${BENCHMARK}_${MODEL}_evaluation" \
+    log_dir="'${SCRIPT_DIR}/evaluation/${BENCHMARK}_${MODEL}_evaluation'" \
     wandb_entity=VLA-Thesis \
     device=0 \
     n_eval=5 \

@@ -5,7 +5,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from timm.models.vision_transformer import RmsNorm
-from jvp_flash_attention.jvp_attention import JVPAttn
+
+try:
+    from jvp_flash_attention.jvp_attention import JVPAttn
+except ImportError:
+    JVPAttn = None  # Training-only dep; eval uses scaled_dot_product_attention.
 
 ###############################################################################
 # Utility Functions

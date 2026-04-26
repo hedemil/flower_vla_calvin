@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.9.1-cudnn-devel-ubuntu22.04
+FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu20.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
@@ -7,10 +7,10 @@ ENV PYTHONUNBUFFERED=1
 # System deps
 # ===============================
 RUN apt-get update && apt-get install -y \
-    python3.11 \
-    python3.11-dev \
-    python3.11-venv \
+    python3.9 \
+    python3.9-dev \
     python3-pip \
+    python3-venv \
     git \
     wget \
     curl \
@@ -45,8 +45,7 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 && \
-    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.9 1
 RUN python -m pip install --upgrade pip setuptools wheel
 
 # ===============================
@@ -56,21 +55,27 @@ ENV MUJOCO_GL=egl
 ENV PYOPENGL_PLATFORM=egl
 
 # ===============================
-# Install PyTorch first as a separate cached layer (CUDA 12.8)
+# Base Python deps
 # ===============================
-RUN pip install torch==2.10.0 torchvision torchaudio \
-    --extra-index-url https://download.pytorch.org/whl/cu128
+RUN pip install \
+    pillow \
+    termcolor \
+    tqdm \
+    imageio \
+    imageio-ffmpeg \
+    moviepy \
+    mujoco==2.3.7 \
+    glfw
+
+# Install PyTorch first (CUDA 11.8)
+RUN pip install torch==2.2.2 torchvision torchaudio \
+    --index-url https://download.pytorch.org/whl/cu118
 
 # ===============================
-# Copy project
+# Copy project and install submodules
 # ===============================
 WORKDIR /workspace/flower_vla_calvin
 COPY . .
-
-# ===============================
-# Install main requirements (matches Leonardo environment)
-# ===============================
-RUN pip install -r requirements_leonardo.txt
 
 # ===============================
 # Install tacto
@@ -85,7 +90,7 @@ WORKDIR /workspace/flower_vla_calvin/calvin_env
 RUN pip install -e .
 
 # ===============================
-# Create LIBERO config file
+# Create LIBERO config file first
 # ===============================
 RUN mkdir -p /appuser/.libero && \
     echo "benchmark_root: /workspace/flower_vla_calvin/LIBERO/libero/libero" > /appuser/.libero/config.yaml && \
@@ -96,22 +101,51 @@ RUN mkdir -p /appuser/.libero && \
     echo "✓ LIBERO config created"
 
 # ===============================
-# Install LIBERO (no-deps to avoid overriding pinned versions)
+# Install LIBERO requirements first (to get dependencies)
 # ===============================
 WORKDIR /workspace/flower_vla_calvin/LIBERO
-RUN pip install --no-deps -e . && \
-    echo "✓ LIBERO installed"
+RUN echo "Installing LIBERO requirements..." && \
+    pip install -r requirements.txt && \
+    pip install -e . && \
+    pip install numpy~=1.23 && \
+    echo "✓ LIBERO requirements installed"
 
 # ===============================
-# Install pyhash from source (CALVIN dependency, requires old setuptools)
+# Install pyhash with specific setuptools
 # ===============================
 WORKDIR /workspace/flower_vla_calvin
 RUN pip install setuptools==57.5.0 && \
     cd pyhash-0.9.3 && \
     python setup.py build && \
     python setup.py install && \
-    cd .. && \
-    pip install --upgrade setuptools
+    cd ..
+
+# ===============================
+# Install main project requirements
+# ===============================
+WORKDIR /workspace/flower_vla_calvin
+RUN pip install -r requirements.txt
+
+# ===============================
+# Install hf_transfer for faster HuggingFace downloads
+# ===============================
+RUN pip install hf_transfer
+
+# ===============================
+# Upgrade transformers for Florence-2 compatibility
+# Pin to version compatible with torch 2.2.2 (before CVE-2025-32434 patch)
+# ===============================
+RUN pip install transformers==4.46.3
+
+# ===============================
+# Upgrade wandb to latest version (LIBERO has old 0.13.1)
+# ===============================
+RUN pip install --upgrade wandb
+
+# ===============================
+# Set working directory for remaining installations
+# ===============================
+WORKDIR /workspace/flower_vla_calvin
 
 # ===============================
 # Environment variables
@@ -121,7 +155,7 @@ ENV PYTHONPATH=/workspace/flower_vla_calvin/LIBERO:${PYTHONPATH}
 ENV HF_HUB_ENABLE_HF_TRANSFER=1
 ENV HOME=/appuser
 
-# Verify LIBERO can be imported
+# Verify LIBERO can be imported (from same working directory)
 RUN echo "Verifying LIBERO installation..." && \
     python -c "from libero.libero import benchmark, get_libero_path; print('✓ LIBERO imported successfully')" || \
     (echo "ERROR: LIBERO import failed!" && exit 1)

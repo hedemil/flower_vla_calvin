@@ -40,3 +40,11 @@ checkpoint:
   dirpath: saved_models
   filename: '{epoch:02d}_{eval_lh/avg_seq_len:.2f}' #put back in when PL fixes this _{val/accuracy:.4f}'
   every_n_epochs: ${callbacks.rollout_lh.rollout_freq}
+
+ema_safetensors_checkpoint:
+  _target_: flower.callbacks.ema_safetensors_checkpoint.EMASafetensorsCheckpoint
+  dirpath: saved_models
+  monitor: eval_lh/avg_seq_len
+  mode: max
+  every_n_epochs: ${callbacks.rollout_lh.rollout_freq}
+  hydra_config_path: null
