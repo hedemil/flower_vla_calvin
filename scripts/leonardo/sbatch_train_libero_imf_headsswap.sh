@@ -1,17 +1,12 @@
 #!/bin/bash
 # ==============================================================================
-# LIBERO training on Leonardo HPC (venv-based, no container)
+# LIBERO iMF ablation: imf_head_depth=10 (8 shared + 10 u/v, opposite of default)
 #
 # Usage:
-#   sbatch scripts/leonardo/sbatch_train_libero.sh <model> [hydra overrides...]
-#
-# Examples:
-#   sbatch scripts/leonardo/sbatch_train_libero.sh meanflower
-#   sbatch scripts/leonardo/sbatch_train_libero.sh decoupled_meanflower batch_size=8
-#   sbatch scripts/leonardo/sbatch_train_libero.sh flower libero_benchmark=libero_goal
+#   sbatch scripts/leonardo/sbatch_train_libero_imf_headsswap.sh [hydra overrides...]
 # ==============================================================================
 
-#SBATCH --job-name=flower-libero
+#SBATCH --job-name=imf-libero-headsswap
 #SBATCH --partition=boost_usr_prod
 #SBATCH --qos=boost_qos_lprod
 #SBATCH --nodes=1
@@ -19,18 +14,12 @@
 #SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=256G
-#SBATCH --time=1-12:00:00
+#SBATCH --time=2-12:00:00
 #SBATCH --output=%x_%j.out
 #SBATCH --error=%x_%j.err
 #SBATCH --account=AIFAC_F02_024
 
 set -euo pipefail
-
-# ---------------------
-# Parse model argument
-# ---------------------
-MODEL="${1:-meanflower}"
-shift 1 || true
 
 # ---------------------
 # Paths
@@ -44,10 +33,15 @@ DATA_DIR="$WORK/data/libero"
 HF_CACHE="$WORK/ehed0000/hf_cache"
 WANDB_DIR="$CODE_DIR/wandb_runs"
 
-# WandB run name: model_dataset_date
-DATASET="libero_spatial"
+# iMF pretrained checkpoint
+PRETRAIN_CHK="$WORK/checkpoints/pretrained/imf_checkpoint_290000.safetensors"
+
+# WandB run name
+MODEL="imf"
+DATASET="libero_10"
+ABLATION="headsswap"
 DATE=$(date +%Y%m%d)
-WANDB_NAME="${MODEL}_${DATASET}_${DATE}"
+WANDB_NAME="imf_${DATASET}_${ABLATION}_${DATE}"
 
 # ---------------------
 # Load modules and activate venv
@@ -98,17 +92,25 @@ if [[ ! -d "$DATA_DIR" ]]; then
     exit 1
 fi
 
+if [[ ! -f "$PRETRAIN_CHK" ]]; then
+    echo "ERROR: iMF checkpoint not found: $PRETRAIN_CHK"
+    exit 1
+fi
+
 # ---------------------
 # Logging
 # ---------------------
 echo "============================================"
-echo "LIBERO Training - Leonardo HPC"
+echo "LIBERO iMF Training - Leonardo HPC"
+echo "Ablation: imf_head_depth=10 (8 shared + 10 u/v)"
 echo "============================================"
 echo "Job ID:        $SLURM_JOB_ID"
 echo "Node:          $(hostname)"
 echo "GPUs:          $SLURM_GPUS_ON_NODE"
-echo "Model:         $MODEL"
+echo "Model:         $MODEL (iMF)"
 echo "Dataset:       $DATASET"
+echo "Ablation:      $ABLATION"
+echo "Pretrain chk:  $PRETRAIN_CHK"
 echo "WandB name:    $WANDB_NAME"
 echo "Code:          $CODE_DIR"
 echo "Venv:          $VENV_DIR"
@@ -134,8 +136,10 @@ srun python flower/training_libero.py \
     root_data_dir="$DATA_DIR/$DATASET" \
     libero_benchmark="$DATASET" \
     model="$MODEL" \
+    model.imf_head_depth=10 \
+    +pretrain_chk="$PRETRAIN_CHK" \
     logger.name="$WANDB_NAME" \
-    hydra.run.dir="$CODE_DIR/logs/runs/\${now:%Y-%m-%d}/${MODEL}_${SLURM_JOB_ID}" \
+    hydra.run.dir="$CODE_DIR/logs/runs/\${now:%Y-%m-%d}/imf_${ABLATION}_${SLURM_JOB_ID}" \
     +callbacks.checkpoint.save_weights_only=True \
     "$@"
 
