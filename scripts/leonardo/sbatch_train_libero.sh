@@ -44,6 +44,18 @@ DATA_DIR="$WORK/data/libero"
 HF_CACHE="$WORK/ehed0000/hf_cache"
 WANDB_DIR="$CODE_DIR/wandb_runs"
 
+# Pretrained checkpoint per model (override with PRETRAIN_CHK env, or "" to disable)
+if [[ -z "${PRETRAIN_CHK+x}" ]]; then
+    case "$MODEL" in
+        flower)
+            PRETRAIN_CHK="$WORK/checkpoints/pretrained/flower_baseline_checkpoint_290000.safetensors"
+            ;;
+        *)
+            PRETRAIN_CHK=""
+            ;;
+    esac
+fi
+
 # WandB run name: model_dataset_date
 DATASET="libero_spatial"
 DATE=$(date +%Y%m%d)
@@ -98,6 +110,11 @@ if [[ ! -d "$DATA_DIR" ]]; then
     exit 1
 fi
 
+if [[ -n "$PRETRAIN_CHK" && ! -f "$PRETRAIN_CHK" ]]; then
+    echo "ERROR: PRETRAIN_CHK not found: $PRETRAIN_CHK"
+    exit 1
+fi
+
 # ---------------------
 # Logging
 # ---------------------
@@ -113,6 +130,7 @@ echo "WandB name:    $WANDB_NAME"
 echo "Code:          $CODE_DIR"
 echo "Venv:          $VENV_DIR"
 echo "Data:          $DATA_DIR"
+echo "Pretrain ckpt: ${PRETRAIN_CHK:-<none>}"
 echo "MASTER_ADDR:   $MASTER_ADDR"
 echo "MASTER_PORT:   $MASTER_PORT"
 echo "Python:        $(which python)"
@@ -128,6 +146,11 @@ mkdir -p "$WANDB_DIR"
 # ---------------------
 cd "$CODE_DIR"
 
+EXTRA_ARGS=()
+if [[ -n "$PRETRAIN_CHK" ]]; then
+    EXTRA_ARGS+=("+pretrain_chk=$PRETRAIN_CHK" "+strict_load=true")
+fi
+
 srun python flower/training_libero.py \
     devices=4 \
     log_dir="$CODE_DIR/logs" \
@@ -137,6 +160,7 @@ srun python flower/training_libero.py \
     logger.name="$WANDB_NAME" \
     hydra.run.dir="$CODE_DIR/logs/runs/\${now:%Y-%m-%d}/${MODEL}_${SLURM_JOB_ID}" \
     +callbacks.checkpoint.save_weights_only=True \
+    "${EXTRA_ARGS[@]}" \
     "$@"
 
 echo ""

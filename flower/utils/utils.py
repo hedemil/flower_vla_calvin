@@ -101,6 +101,12 @@ def initialize_pretrained_weights(model, cfg):
     if unexpected_keys:
         print(f"  Unexpected keys (first 20): {unexpected_keys[:20]}")
 
+    if cfg.get("strict_load", False) and missing_keys:
+        raise RuntimeError(
+            f"strict_load=True but checkpoint is missing {len(missing_keys)} keys. "
+            f"First 20: {missing_keys[:20]}"
+        )
+
 
 def get_git_commit_hash(repo_path: Path) -> str:
     try:
