@@ -48,7 +48,7 @@ WANDB_DIR="$CODE_DIR/wandb_runs"
 if [[ -z "${PRETRAIN_CHK+x}" ]]; then
     case "$MODEL" in
         flower)
-            PRETRAIN_CHK="$WORK/checkpoints/pretrained/flower_baseline_checkpoint_290000.safetensors"
+            PRETRAIN_CHK="$WORK/checkpoints/pretrained/flower_baseline_290000.safetensors"
             ;;
         *)
             PRETRAIN_CHK=""
