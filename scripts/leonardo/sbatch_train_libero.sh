@@ -56,10 +56,10 @@ if [[ -z "${PRETRAIN_CHK+x}" ]]; then
     esac
 fi
 
-# WandB run name: model_dataset_date
-DATASET="libero_spatial"
+# WandB run name: model_dataset[_runtag]_date
+DATASET="${DATASET:-libero_spatial}"
 DATE=$(date +%Y%m%d)
-WANDB_NAME="${MODEL}_${DATASET}_${DATE}"
+WANDB_NAME="${MODEL}_${DATASET}${RUN_TAG:+_$RUN_TAG}_${DATE}"
 
 # ---------------------
 # Load modules and activate venv
