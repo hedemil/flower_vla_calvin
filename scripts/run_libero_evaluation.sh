@@ -116,10 +116,12 @@ python flower/evaluation/flower_eval_libero.py \
     benchmark_name="$BENCHMARK" \
     num_sampling_steps="$NUM_SAMPLING_STEPS" \
     eval_cfg_overwrite.model.num_sampling_steps="$NUM_SAMPLING_STEPS" \
+    +eval_cfg_overwrite.model.load_pretrained=True \
+    +variant_label="$MODEL" \
     log_dir="'${SCRIPT_DIR}/evaluation/${BENCHMARK}_${MODEL}_evaluation'" \
     wandb_entity=VLA-Thesis \
     device=0 \
-    n_eval=5 \
+    n_eval=20 \
     max_steps=520 \
     num_videos=5 \
     log_wandb=true

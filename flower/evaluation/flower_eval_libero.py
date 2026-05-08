@@ -76,6 +76,7 @@ class EvaluateLibero:
         task_embedding_format,
         device,
         log_wandb=False,
+        variant_label=None,
     ):
         self.model = model
         self.transforms = transforms
@@ -88,6 +89,7 @@ class EvaluateLibero:
         self.init_states_folder = get_libero_path("init_states")
         self.task_embedding_format =task_embedding_format
         self.benchmark_name = benchmark_name
+        self.variant_label = variant_label
         self.benchmark_dict = benchmark.get_benchmark_dict()
         self.benchmark_instance = self.benchmark_dict[self.benchmark_name]()
         self.num_tasks = self.benchmark_instance.get_num_tasks()
@@ -127,7 +129,7 @@ class EvaluateLibero:
             self.benchmark = get_benchmark(self.benchmark_name)(self.eval_sequences)
 
     def start(self) -> None:
-        successes = self.evaluate_policy(self.model, store_video=self.num_videos)
+        successes, episodes = self.evaluate_policy(self.model, store_video=self.num_videos)
 
         result_array = sum(successes) / len(successes)
 
@@ -142,11 +144,25 @@ class EvaluateLibero:
         for success, task_name in zip(successes, self.task_names):
             logger.info(f"eval_lh/sr_{task_name} with success {success}")
 
+        # Per-episode outcome dump (Tables R2-R7 in docs/thesis_results.md).
+        # Tagged with the suite name so analyze_libero_results.py can
+        # consume multiple files without re-tagging.
+        episodes_path = Path(self.log_dir) / "episodes.jsonl"
+        with open(episodes_path, "w") as f:
+            for rec in episodes:
+                rec_out = dict(rec)
+                rec_out["suite"] = self.benchmark_name
+                if self.variant_label is not None:
+                    rec_out["variant"] = self.variant_label
+                f.write(json.dumps(rec_out) + "\n")
+        logger.info(f"wrote {len(episodes)} episode records to {episodes_path}")
+
         print('done')
         print()
 
     def evaluate_policy(self, model, store_video=False):
         successes = []
+        episodes: list[dict] = []
 
         for idx in self.all_tasks:  # Distribute tasks across GPUs
             task_name = self.task_names[idx]
@@ -154,12 +170,16 @@ class EvaluateLibero:
             task_emb = self.benchmark_instance.task_embs[idx]
             task_str = f"k{self.all_tasks[-1]}_p{idx}"
             logger.info(f"starting to evaluate: {task_name}")
-            success_rate = self.evaluate_task(model, task_i, task_emb, task_str, idx, store_video=store_video)
+            success_rate, task_episodes = self.evaluate_task(
+                model, task_i, task_emb, task_str, idx, store_video=store_video
+            )
             print(f"Task {task_name} success rate: {success_rate:.4f}")
             logger.info(f"Task {task_name} success rate: {success_rate:.4f}")
             successes.append(success_rate)
+            for ep in task_episodes:
+                episodes.append({"task_name": task_name, **ep})
 
-        return successes
+        return successes, episodes
 
     def evaluate_task(self, model, task_i, task_emb, task_str, idx, sim_states=None, store_video=0):
         env_args = {
@@ -217,6 +237,7 @@ class EvaluateLibero:
         # # --- End Measurement Block ---
         
         num_success = 0
+        episodes: list[dict] = []
         for i in tqdm(range(self.n_eval), desc="Evaluating"):
             store_video_this_rollout = i < store_video
             if store_video_this_rollout:
@@ -271,17 +292,20 @@ class EvaluateLibero:
 
             if store_video_this_rollout:
                 for frame in video_frames:
-                    video_writer.write(frame)
+                    # LIBERO's agentview_image is stored upside down; rotate
+                    # 180° so the saved MP4s are right-side up.
+                    video_writer.write(cv2.rotate(frame, cv2.ROTATE_180))
                 video_writer.release()
 
             # a new form of success record
             num_success += int(done)
+            episodes.append({"episode_index": int(i), "success": int(bool(done))})
 
         success_rate = num_success / self.n_eval
         env.close()
         gc.collect()
         # print(f"[info] evaluate task {task_str} takes {t.get_elapsed_time():.1f} seconds")
-        return success_rate
+        return success_rate, episodes
 
     def create_cfg_for_libero(self, task_embedding_format):
         self.cfg = DictConfig({'task_embedding_format': task_embedding_format,
@@ -436,6 +460,7 @@ def main(cfg):
         task_embedding_format=cfg.task_embedding_format,
         device=cfg.device,
         log_wandb=cfg.log_wandb,
+        variant_label=cfg.get("variant_label", None),
     )
 
     if cfg.log_wandb:
