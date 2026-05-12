@@ -185,7 +185,8 @@ EOF
 # ==============================================================================
 setup_calvin() {
     # Which CALVIN task to download. Defaults to task_D_D (single env,
-    # smaller, ~80 GB). For cross-env, set CALVIN_TASK=task_ABC_D (~700 GB).
+    # ~165 GB zip → ~250-300 GB extracted). For cross-env, set
+    # CALVIN_TASK=task_ABC_D (~700 GB extracted).
     local TASK="${CALVIN_TASK:-task_D_D}"
     echo "=== [3] Downloading CALVIN dataset ($TASK) ==="
 
@@ -196,8 +197,22 @@ setup_calvin() {
     if [[ -d "$CALVIN_DIR/$TASK" ]]; then
         echo "$TASK already exists, skipping download"
     else
-        echo "Downloading $TASK..."
-        wget -q --show-progress "http://calvin.cs.uni-freiburg.de/dataset/${TASK}.zip"
+        # Clean any stray .1/.2/.partial siblings from previous interrupted
+        # attempts — wget without -c saves duplicates as ${TASK}.zip.N which
+        # then break the unzip step.
+        rm -f "${TASK}.zip."[0-9]* "${TASK}.zip.partial"
+
+        echo "Downloading $TASK (resumable with -c)..."
+        # -c: continue partial downloads in place rather than creating .N siblings
+        wget -c --show-progress "http://calvin.cs.uni-freiburg.de/dataset/${TASK}.zip"
+
+        echo "Verifying zip integrity..."
+        if ! unzip -tq "${TASK}.zip"; then
+            echo "ERROR: ${TASK}.zip is corrupt. Delete it and rerun setup_calvin." >&2
+            exit 1
+        fi
+
+        echo "Extracting (this takes a while)..."
         unzip -q "${TASK}.zip"
         rm "${TASK}.zip"
         echo "Downloaded $TASK to $CALVIN_DIR/$TASK"
