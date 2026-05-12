@@ -179,3 +179,9 @@ wandb_runs/
 
 # Compiled artifacts under tools/
 tools/**/__pycache__/
+
+# docs
+docs/thesis/**
+docs/figures/**
+
+failure_modes/**

@@ -29,7 +29,7 @@
 #SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=256G
-#SBATCH --time=3-00:00:00
+#SBATCH --time=4-00:00:00
 #SBATCH --output=%x_%j.out
 #SBATCH --error=%x_%j.err
 #SBATCH --account=AIFAC_F02_024
@@ -160,10 +160,17 @@ if [[ -n "$PRETRAIN_CHK" ]]; then
     fi
 fi
 
-# Fine-tuning regime overrides (max_epochs/skip/freq) are set here so RF and
-# iMF runs use identical schedules out of the box. Override on the CLI to
-# experiment. Eval starts at epoch 1 (skip_epochs=1) and runs every 2 epochs
-# so we get ~10+ eval points across a 25-epoch fine-tune.
+# Fine-tuning regime overrides — sized to match the FLOWER paper's
+# "up to 40k optimizer steps". With this config
+# (limit_train_batches=1000 × accumulate_grad_batches=4 = 250 opt steps/epoch),
+# 160 epochs = 40k steps. Note effective batch (64 samples/step) is 2× the
+# paper's (32), so 40k steps here sees ~2× the samples; that's fine because
+# we're matching their reported step count, not their sample count.
+#
+# Eval policy: lighter num_sequences=300 every 10 epochs during training to
+# track convergence (~16 eval points, ~5-8 h eval overhead). After training
+# finishes, re-evaluate the best checkpoint at num_sequences=1000 for
+# Table 10-comparable headline numbers in the thesis.
 srun python flower/training_calvin.py \
     devices=4 \
     seed="$SEED" \
@@ -172,9 +179,10 @@ srun python flower/training_calvin.py \
     use_extracted_rel_actions=true \
     benchmark_name="$BENCHMARK_NAME" \
     model="$MODEL" \
-    max_epochs=25 \
+    max_epochs=160 \
     rollout_lh_skip_epochs=1 \
-    callbacks.rollout_lh.rollout_freq=2 \
+    callbacks.rollout_lh.rollout_freq=10 \
+    callbacks.rollout_lh.num_sequences=300 \
     logger.name="$WANDB_NAME" \
     hydra.run.dir="$CODE_DIR/logs/runs/\${now:%Y-%m-%d}/${MODEL}_${BENCHMARK_NAME}_${SLURM_JOB_ID}" \
     +callbacks.checkpoint.save_weights_only=True \

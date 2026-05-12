@@ -48,14 +48,67 @@ def get_log_dir(log_dir):
     return log_dir
 
 
+def _chain_lengths(results):
+    """Return the list of chain lengths (success_counter ints) from results.
+    Accepts either old-style int list or new-style list of rich dicts."""
+    out = []
+    for r in results:
+        if isinstance(r, dict):
+            out.append(int(r["success_counter"]))
+        else:
+            out.append(int(r))
+    return out
+
+
 def count_success(results):
-    count = Counter(results)
+    count = Counter(_chain_lengths(results))
+    n = len(results)
     step_success = []
     for i in range(1, 6):
         n_success = sum(count[j] for j in reversed(range(i, 6)))
-        sr = n_success / len(results)
+        sr = n_success / n
         step_success.append(sr)
     return step_success
+
+
+def dump_episodes_jsonl(results, out_path: Path, *, epoch: str | int = "final") -> None:
+    """Write per-sequence + per-subtask JSONL records (same schema as
+    RolloutLongHorizon.dump_episodes_jsonl) so analysis tools work uniformly."""
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    n_chains = 0
+    n_subtasks = 0
+    with open(out_path, "a") as f:
+        for r in results:
+            if not isinstance(r, dict):
+                continue  # backward compat: skip int-only entries
+            chain_rec = {
+                "kind": "chain",
+                "epoch": epoch if isinstance(epoch, int) else 0,
+                "epoch_tag": str(epoch),
+                "sequence_index": int(r["sequence_index"]),
+                "eval_sequence": list(r["eval_sequence"]),
+                "success_counter": int(r["success_counter"]),
+            }
+            f.write(json.dumps(chain_rec) + "\n")
+            n_chains += 1
+            for pos, (name, succ, n_steps) in enumerate(zip(
+                r["per_subtask_names"],
+                r["per_subtask_success"],
+                r["per_subtask_steps"],
+            )):
+                sub_rec = {
+                    "kind": "subtask",
+                    "epoch": epoch if isinstance(epoch, int) else 0,
+                    "epoch_tag": str(epoch),
+                    "sequence_index": int(r["sequence_index"]),
+                    "subtask_position": int(pos),
+                    "subtask_name": str(name),
+                    "success": int(bool(succ)),
+                    "steps": int(n_steps),
+                }
+                f.write(json.dumps(sub_rec) + "\n")
+                n_subtasks += 1
+    logger.info(f"Wrote {n_chains} chain records + {n_subtasks} subtask records to {out_path}")
 
 
 def print_and_save(total_results, plan_dicts, cfg, log_dir=None):
@@ -174,7 +227,7 @@ def evaluate_policy(model, env, lang_embeddings, cfg, num_videos=0, save_dir=Non
         if not cfg.debug:
             success_rates = count_success(results)
             average_rate = sum(success_rates) / len(success_rates) * 5
-            description = " ".join([f"{i + 1}/5 : {v * 100:.1f}% |" for i, v in enumerate(success_rates)])
+            description = " ".join([f"{idx + 1}/5 : {v * 100:.1f}% |" for idx, v in enumerate(success_rates)])
             description += f" Average: {average_rate:.1f} |"
             eval_sequences.set_description(description)
 
@@ -193,6 +246,10 @@ def evaluate_sequence(
         caption = " | ".join(eval_sequence)
         rollout_video.new_video(tag=get_video_tag(i), caption=caption)
     success_counter = 0
+    per_subtask_names: list[str] = []
+    per_subtask_success: list[int] = []
+    per_subtask_steps: list[int] = []
+    chain_broken = False
     if cfg.debug:
         time.sleep(1)
         print()
@@ -200,16 +257,31 @@ def evaluate_sequence(
         print(f"Evaluating sequence: {' -> '.join(eval_sequence)}")
         print("Subtask: ", end="")
     for subtask in eval_sequence:
+        if chain_broken:
+            per_subtask_names.append(str(subtask))
+            per_subtask_success.append(0)
+            per_subtask_steps.append(-1)
+            continue
         if record:
             rollout_video.new_subtask()
-        success = rollout(env, model, task_checker, cfg, subtask, lang_embeddings, val_annotations, record, rollout_video)
+        success, n_steps = rollout(env, model, task_checker, cfg, subtask, lang_embeddings, val_annotations, record, rollout_video)
         if record:
             rollout_video.draw_outcome(success)
+        per_subtask_names.append(str(subtask))
+        per_subtask_success.append(int(bool(success)))
+        per_subtask_steps.append(int(n_steps))
         if success:
             success_counter += 1
         else:
-            return success_counter
-    return success_counter
+            chain_broken = True
+    return {
+        "sequence_index": int(i),
+        "eval_sequence": [str(s) for s in eval_sequence],
+        "success_counter": int(success_counter),
+        "per_subtask_names": per_subtask_names,
+        "per_subtask_success": per_subtask_success,
+        "per_subtask_steps": per_subtask_steps,
+    }
 
 
 def rollout(env, model, task_oracle, cfg, subtask, lang_embeddings, val_annotations, record=False, rollout_video=None):
@@ -226,6 +298,7 @@ def rollout(env, model, task_oracle, cfg, subtask, lang_embeddings, val_annotati
     model.reset()
     start_info = env.get_info()
 
+    steps_taken = cfg.ep_len
     for step in range(cfg.ep_len):
         action = model.step(obs, goal)
         obs, _, _, current_info = env.step(action)
@@ -239,16 +312,17 @@ def rollout(env, model, task_oracle, cfg, subtask, lang_embeddings, val_annotati
         # check if current step solves a task
         current_task_info = task_oracle.get_task_info_for_set(start_info, current_info, {subtask})
         if len(current_task_info) > 0:
+            steps_taken = step + 1
             if cfg.debug:
                 print(colored("success", "green"), end=" ")
             if record:
                 rollout_video.add_language_instruction(lang_annotation)
-            return True
+            return True, steps_taken
     if cfg.debug:
         print(colored("fail", "red"), end=" ")
     if record:
         rollout_video.add_language_instruction(lang_annotation)
-    return False
+    return False, steps_taken
 
 
 @hydra.main(config_path="../../conf", config_name="eval_calvin")
@@ -302,7 +376,12 @@ def main(cfg):
 
     results[Path(cfg.checkpoint)], plans[Path(cfg.checkpoint)] = evaluate_policy(model, env, lang_embeddings, cfg, num_videos=cfg.num_videos, save_dir=Path(log_dir))
     print_and_save(results, plans, cfg, log_dir=log_dir)
-    
+
+    # Per-sequence JSONL — same schema as RolloutLongHorizon so mcnemar_calvin.py
+    # works uniformly on training-time rollouts and post-training final eval.
+    jsonl_path = Path(log_dir) / "rollout_episodes.jsonl"
+    dump_episodes_jsonl(results[Path(cfg.checkpoint)], jsonl_path, epoch="final")
+
     if log_wandb:
         run.finish()
 
