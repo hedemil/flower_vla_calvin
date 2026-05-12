@@ -111,7 +111,7 @@ def load_run_history_manifest(manifest_path: str | Path) -> pd.DataFrame:
 
 # ----- LIBERO episode outcomes ----------------------------------------------
 
-EPISODES_SCHEMA = ["variant", "suite", "epoch", "task_name", "episode_index", "success"]
+EPISODES_SCHEMA = ["variant", "suite", "epoch", "task_name", "episode_index", "success", "steps"]
 
 
 def load_episodes_jsonl(
@@ -147,6 +147,7 @@ def load_episodes_jsonl(
                     "task_name": rec["task_name"],
                     "episode_index": int(rec["episode_index"]),
                     "success": int(bool(rec["success"])),
+                    "steps": int(rec["steps"]) if "steps" in rec else None,
                 })
     df = pd.DataFrame(rows, columns=EPISODES_SCHEMA)
     df.attrs["paired"] = True

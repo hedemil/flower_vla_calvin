@@ -299,7 +299,11 @@ class EvaluateLibero:
 
             # a new form of success record
             num_success += int(done)
-            episodes.append({"episode_index": int(i), "success": int(bool(done))})
+            episodes.append({
+                "episode_index": int(i),
+                "success": int(bool(done)),
+                "steps": int(steps),
+            })
 
         success_rate = num_success / self.n_eval
         env.close()

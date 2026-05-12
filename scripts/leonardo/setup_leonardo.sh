@@ -184,19 +184,23 @@ EOF
 # Step: calvin - Download and preprocess CALVIN
 # ==============================================================================
 setup_calvin() {
-    echo "=== [3] Downloading CALVIN dataset ==="
+    # Which CALVIN task to download. Defaults to task_D_D (single env,
+    # smaller, ~80 GB). For cross-env, set CALVIN_TASK=task_ABC_D (~700 GB).
+    local TASK="${CALVIN_TASK:-task_D_D}"
+    echo "=== [3] Downloading CALVIN dataset ($TASK) ==="
 
     CALVIN_DIR="$WORK/data/calvin"
+    mkdir -p "$CALVIN_DIR"
     cd "$CALVIN_DIR"
 
-    if [[ -d "$CALVIN_DIR/task_ABC_D" ]]; then
-        echo "task_ABC_D already exists, skipping download"
+    if [[ -d "$CALVIN_DIR/$TASK" ]]; then
+        echo "$TASK already exists, skipping download"
     else
-        echo "Downloading task_ABC_D..."
-        wget -q --show-progress http://calvin.cs.uni-freiburg.de/dataset/task_ABC_D.zip
-        unzip -q task_ABC_D.zip
-        rm task_ABC_D.zip
-        echo "Downloaded task_ABC_D to $CALVIN_DIR/task_ABC_D"
+        echo "Downloading $TASK..."
+        wget -q --show-progress "http://calvin.cs.uni-freiburg.de/dataset/${TASK}.zip"
+        unzip -q "${TASK}.zip"
+        rm "${TASK}.zip"
+        echo "Downloaded $TASK to $CALVIN_DIR/$TASK"
     fi
 
     # Preprocess: extract rel_actions
@@ -205,12 +209,12 @@ setup_calvin() {
     source "$VENV_DIR/bin/activate"
     python "$CODE_DIR/preprocess/extract_by_key.py" \
         -i "$CALVIN_DIR" \
-        --in_task task_ABC_D \
+        --in_task "$TASK" \
         --in_split all \
         -k rel_actions
 
     echo ""
-    echo "=== CALVIN setup complete ==="
+    echo "=== CALVIN $TASK setup complete ==="
 }
 
 # ==============================================================================

@@ -1,8 +1,10 @@
 from collections import Counter
 from itertools import chain
+import json
 import logging
 import multiprocessing
 import os
+from pathlib import Path
 from typing import Any
 
 import hydra
@@ -207,8 +209,8 @@ class RolloutLongHorizon(Callback):
 
         # Check if we should run evaluation this epoch
         should_evaluate = (
-            pl_module.current_epoch == self.skip_epochs or 
-            ((pl_module.current_epoch - self.skip_epochs) >= 0 and 
+            pl_module.current_epoch == self.skip_epochs or
+            ((pl_module.current_epoch - self.skip_epochs) >= 0 and
              (pl_module.current_epoch - self.skip_epochs) % self.rollout_freq == 0)
         )
 
@@ -216,17 +218,41 @@ class RolloutLongHorizon(Callback):
 
             results = self.evaluate_policy(pl_module)
             results = gather_results(results)
-            count = Counter(results)  # type: ignore
+
+            # Each result is a dict; success_counter is the chain length completed (0..5).
+            chain_lengths = [r["success_counter"] for r in results]
+            count = Counter(chain_lengths)
             print()
             for i in range(1, 6):
                 n_success = sum(count[j] for j in reversed(range(i, 6)))
                 sr = n_success / len(results)
                 pl_module.log(f"eval_lh/sr_chain_{i}", torch.tensor(sr, device=pl_module.device), on_step=False, sync_dist=True)
                 log_rank_0(f"{i} / 5 subtasks: {n_success} / {len(results)} sequences, SR: {sr * 100:.1f}%")
-            avg_seq_len = np.mean(results)
+            avg_seq_len = float(np.mean(chain_lengths))
             pl_module.log("eval_lh/avg_seq_len", torch.tensor(avg_seq_len, device=pl_module.device), on_epoch=True, sync_dist=True)
             log_rank_0(f"Average successful sequence length: {avg_seq_len:.1f}")
             print()
+
+            # Per-subtask SR aggregation across all sequences (rank-0 metrics).
+            per_subtask_attempts: dict[str, int] = {}
+            per_subtask_success: dict[str, int] = {}
+            for r in results:
+                for name, succ in zip(r["per_subtask_names"], r["per_subtask_success"]):
+                    per_subtask_attempts[name] = per_subtask_attempts.get(name, 0) + 1
+                    per_subtask_success[name] = per_subtask_success.get(name, 0) + int(succ)
+            for name, attempts in sorted(per_subtask_attempts.items()):
+                if attempts == 0:
+                    continue
+                sr = per_subtask_success[name] / attempts
+                pl_module.log(
+                    f"eval_lh/subtask/{name}",
+                    torch.tensor(sr, device=pl_module.device),
+                    on_step=False, sync_dist=False,
+                )
+
+            # Write per-sequence JSONL on rank 0 — same schema-spirit as LIBERO
+            # episodes.jsonl so downstream analysis tools can pair RF vs iMF.
+            self._dump_episodes_jsonl(results, epoch=pl_module.current_epoch)
 
     def _log_zero_metrics(self, pl_module: LightningModule) -> None:
         """Log zero metrics for skipped evaluations."""
@@ -244,6 +270,45 @@ class RolloutLongHorizon(Callback):
             sync_dist=True
         )
 
+    def _dump_episodes_jsonl(self, results: list, *, epoch: int) -> None:
+        """Append per-sequence and per-subtask records to rollout_episodes.jsonl.
+
+        Rank-0 only. Path is cwd-relative so it lands inside the seed-specific
+        Hydra run dir (see training_calvin.py work_dir). Two record types:
+
+          - one chain record per sequence (kind=chain)
+          - one record per subtask attempt (kind=subtask) — for paired McNemar.
+        """
+        if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
+            return
+        out_path = Path("rollout_episodes.jsonl")
+        with open(out_path, "a") as f:
+            for r in results:
+                chain_rec = {
+                    "kind": "chain",
+                    "epoch": int(epoch),
+                    "sequence_index": int(r["sequence_index"]),
+                    "eval_sequence": list(r["eval_sequence"]),
+                    "success_counter": int(r["success_counter"]),
+                }
+                f.write(json.dumps(chain_rec) + "\n")
+                for pos, (name, succ, n_steps) in enumerate(zip(
+                    r["per_subtask_names"],
+                    r["per_subtask_success"],
+                    r["per_subtask_steps"],
+                )):
+                    sub_rec = {
+                        "kind": "subtask",
+                        "epoch": int(epoch),
+                        "sequence_index": int(r["sequence_index"]),
+                        "subtask_position": int(pos),
+                        "subtask_name": str(name),
+                        "success": int(bool(succ)),
+                        "steps": int(n_steps),
+                    }
+                    f.write(json.dumps(sub_rec) + "\n")
+        log_rank_0(f"Wrote {len(results)} sequence chains to {out_path.resolve()}")
+
     def evaluate_policy(self, model):
         results = []
         total_evaluations = len(self.eval_sequences)
@@ -253,35 +318,58 @@ class RolloutLongHorizon(Callback):
                      desc=f"Evaluating Policy(rank={local_rank})",
                      total=total_evaluations, position=local_rank)):
             record = i < self.num_videos
-            result = self.evaluate_sequence(model, initial_state, eval_sequence, record, i)
+            # Use a globally-unique sequence index so rank-N rows don't collide
+            # with rank-0 rows when rolled up across DDP.
+            seq_index = i * (dist.get_world_size() if (dist.is_available() and dist.is_initialized()) else 1) + local_rank
+            result = self.evaluate_sequence(model, initial_state, eval_sequence, record, i, seq_index)
             results.append(result)
             if record:
                 self.rollout_video.write_to_tmp()
         return results
 
-    def evaluate_sequence(self, model, initial_state, eval_sequence, record, i):
+    def evaluate_sequence(self, model, initial_state, eval_sequence, record, i, seq_index):
         robot_obs, scene_obs = get_env_state_for_initial_condition(initial_state)
         self.env.reset(robot_obs=robot_obs, scene_obs=scene_obs)
         if record:
             caption = " | ".join(eval_sequence)
             self.rollout_video.new_video(tag=get_video_tag(i), caption=caption)
         success_counter = 0
+        per_subtask_names: list[str] = []
+        per_subtask_success: list[int] = []
+        per_subtask_steps: list[int] = []
+        chain_broken = False
         if self.debug:
             print()
             print()
             print(f"Evaluating sequence: {' -> '.join(eval_sequence)}")
             print("Subtask: ", end="")
         for subtask in eval_sequence:
+            if chain_broken:
+                # Record un-attempted subtasks so per-subtask rows align with chain.
+                per_subtask_names.append(str(subtask))
+                per_subtask_success.append(0)
+                per_subtask_steps.append(-1)
+                continue
             if record:
                 self.rollout_video.new_subtask()
-            success = self.rollout(model, subtask, record)
+            success, n_steps = self.rollout(model, subtask, record)
             if record:
                 self.rollout_video.draw_outcome(success)
+            per_subtask_names.append(str(subtask))
+            per_subtask_success.append(int(bool(success)))
+            per_subtask_steps.append(int(n_steps))
             if success:
                 success_counter += 1
             else:
-                return success_counter
-        return success_counter
+                chain_broken = True
+        return {
+            "sequence_index": int(seq_index),
+            "eval_sequence": [str(s) for s in eval_sequence],
+            "success_counter": int(success_counter),
+            "per_subtask_names": per_subtask_names,
+            "per_subtask_success": per_subtask_success,
+            "per_subtask_steps": per_subtask_steps,
+        }
 
     def rollout(self, model, subtask, record):
         if self.debug:
@@ -295,6 +383,7 @@ class RolloutLongHorizon(Callback):
         model.reset()
         start_info = self.env.get_info()
         success = False
+        steps_taken = self.ep_len
         for step in range(self.ep_len):
             action = model.step(obs, goal)
             # print(action.shape)
@@ -309,6 +398,7 @@ class RolloutLongHorizon(Callback):
             current_task_info = self.task_checker.get_task_info_for_set(start_info, current_info, {subtask})
             if len(current_task_info) > 0:
                 success = True
+                steps_taken = step + 1
                 break
         if self.debug:
             if success:
@@ -317,4 +407,4 @@ class RolloutLongHorizon(Callback):
                 print(colored("fail", "red"), end=" ")
         if record:
             self.rollout_video.add_language_instruction(lang_annotation)
-        return success
+        return success, steps_taken

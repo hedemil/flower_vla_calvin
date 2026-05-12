@@ -565,6 +565,9 @@ class FLOWERVLA(pl.LightningModule):
         Sample actions using Euler method.
         """
         steps = self.num_sampling_steps if inference else 5
+        if inference and not getattr(self, "_sampling_steps_logged", False):
+            print(f"[flower.sample_actions] inference NFE = {steps}", flush=True)
+            self._sampling_steps_logged = True
         b = z.size(0)
         device = z.device
 
