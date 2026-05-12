@@ -56,17 +56,23 @@ DATA_DIR="$WORK/data/calvin/$CALVIN_TASK"
 HF_CACHE="$WORK/ehed0000/hf_cache"
 WANDB_DIR="$CODE_DIR/wandb_runs"
 
-# Pretrained checkpoint. Two conventions are valid:
-#   1) RF starting point for both runs (initialize_pretrained_weights remaps
-#      flat dit.N to iMF shared+u_head+v_head when target model is iMF). Tests
-#      "does the iMF objective help even from an RF backbone?"
-#   2) Each run starts from its own matched pretrained backbone. Tests
-#      "does iMF+iMF-pretraining beat RF+RF-pretraining end-to-end?"
-#
-# Override per-run on the command line:
-#   PRETRAIN_CHK=/path/to/rf.safetensors  sbatch ... flower
-#   PRETRAIN_CHK=/path/to/imf.safetensors sbatch ... imf
-PRETRAIN_CHK="${PRETRAIN_CHK:-$WORK/checkpoints/pretrained/imf_checkpoint_290000.safetensors}"
+# Pretrained checkpoint per model (override with PRETRAIN_CHK env, or "" to disable).
+# Mirrors the convention in sbatch_train_libero.sh / sbatch_train_libero_imf.sh:
+# each model starts from its own matched pretrained backbone, so RF+RF-pretraining
+# is compared end-to-end against iMF+iMF-pretraining.
+if [[ -z "${PRETRAIN_CHK+x}" ]]; then
+    case "$MODEL" in
+        flower)
+            PRETRAIN_CHK="$WORK/checkpoints/pretrained/flower_baseline_290000.safetensors"
+            ;;
+        imf)
+            PRETRAIN_CHK="$WORK/checkpoints/pretrained/imf_checkpoint_290000.safetensors"
+            ;;
+        *)
+            PRETRAIN_CHK=""
+            ;;
+    esac
+fi
 
 # Deterministic seed shared by RF and iMF for paired episode matching.
 SEED="${CALVIN_FT_SEED:-242}"
@@ -112,7 +118,9 @@ export TOKENIZERS_PARALLELISM=true
 # ---------------------
 [[ -d "$VENV_DIR" ]] || { echo "ERROR: Venv not found: $VENV_DIR"; exit 1; }
 [[ -d "$DATA_DIR" ]] || { echo "ERROR: CALVIN data not found: $DATA_DIR (CALVIN_TASK=$CALVIN_TASK)"; exit 1; }
-[[ -f "$PRETRAIN_CHK" ]] || { echo "ERROR: Pretrained checkpoint not found: $PRETRAIN_CHK"; exit 1; }
+if [[ -n "$PRETRAIN_CHK" && ! -f "$PRETRAIN_CHK" ]]; then
+    echo "ERROR: PRETRAIN_CHK not found: $PRETRAIN_CHK"; exit 1
+fi
 
 # ---------------------
 # Logging
@@ -126,7 +134,7 @@ echo "GPUs:          $SLURM_GPUS_ON_NODE"
 echo "Model:         $MODEL"
 echo "Seed:          $SEED"
 echo "Benchmark:     $BENCHMARK_NAME ($CALVIN_TASK)"
-echo "Pretrain chk:  $PRETRAIN_CHK"
+echo "Pretrain ckpt: ${PRETRAIN_CHK:-<none>}"
 echo "Data:          $DATA_DIR"
 echo "WandB name:    $WANDB_NAME"
 echo "MASTER_ADDR:   $MASTER_ADDR"
@@ -141,6 +149,17 @@ cd "$CODE_DIR"
 # ---------------------
 # Launch
 # ---------------------
+# Per-model strict_load convention (mirrors sbatch_train_libero*.sh):
+#   - RF: strict_load=true (no key remap; loud failure if mismatch)
+#   - iMF: strict_load left at default false (allows dit.N -> shared+u/v head remap)
+EXTRA_ARGS=()
+if [[ -n "$PRETRAIN_CHK" ]]; then
+    EXTRA_ARGS+=("+pretrain_chk=$PRETRAIN_CHK")
+    if [[ "$MODEL" == "flower" ]]; then
+        EXTRA_ARGS+=("+strict_load=true")
+    fi
+fi
+
 # Fine-tuning regime overrides (max_epochs/skip/freq) are set here so RF and
 # iMF runs use identical schedules out of the box. Override on the CLI to
 # experiment. Eval starts at epoch 1 (skip_epochs=1) and runs every 2 epochs
@@ -153,14 +172,13 @@ srun python flower/training_calvin.py \
     use_extracted_rel_actions=true \
     benchmark_name="$BENCHMARK_NAME" \
     model="$MODEL" \
-    +pretrain_chk="$PRETRAIN_CHK" \
-    +strict_load=false \
     max_epochs=25 \
     rollout_lh_skip_epochs=1 \
     callbacks.rollout_lh.rollout_freq=2 \
     logger.name="$WANDB_NAME" \
     hydra.run.dir="$CODE_DIR/logs/runs/\${now:%Y-%m-%d}/${MODEL}_${BENCHMARK_NAME}_${SLURM_JOB_ID}" \
     +callbacks.checkpoint.save_weights_only=True \
+    "${EXTRA_ARGS[@]}" \
     "$@"
 
 echo ""
