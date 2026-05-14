@@ -185,12 +185,16 @@ srun python flower/training_calvin.py \
     callbacks.rollout_lh.num_sequences=300 \
     logger.name="$WANDB_NAME" \
     hydra.run.dir="$CODE_DIR/logs/runs/\${now:%Y-%m-%d}/${MODEL}_${BENCHMARK_NAME}_${SLURM_JOB_ID}" \
+    +callbacks.checkpoint.save_weights_only=True \
     "${EXTRA_ARGS[@]}" \
     "$@"
-# NOTE: removed `+callbacks.checkpoint.save_weights_only=True` — it stripped
-# the EMA weights from saved checkpoints, blocking post-hoc EMA-based eval.
-# Full PL checkpoint is ~12 GB but includes EMA via the callback state_dict,
-# which the post-hoc NFE sweep / re-eval pipelines depend on.
+# NOTE: save_weights_only=True keeps each .ckpt small (~3.6 GB vs ~12 GB).
+# Side effect: the saved checkpoint has raw weights only, no EMA. Post-hoc
+# eval (NFE sweep, etc.) therefore gets raw-weight numbers, which are lower
+# in absolute terms than wandb's EMA-eval but valid for *within-model*
+# comparisons (NFE saturation, ablation deltas). The iMF-vs-RF headline
+# comparison uses the wandb-logged JSONL data which captures EMA-eval
+# performance, so no information loss there.
 
 echo ""
 echo "Job $SLURM_JOB_ID finished at $(date)"

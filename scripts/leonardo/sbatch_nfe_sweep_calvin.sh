@@ -55,8 +55,15 @@ HF_CACHE="$WORK/ehed0000/hf_cache"
 TRAIN_FOLDER="$RUN_DIR/.hydra/config.yaml"
 [[ -f "$TRAIN_FOLDER" ]] || { echo "ERROR: $TRAIN_FOLDER not found"; exit 1; }
 
-CKPT="$(find "$RUN_DIR" -path "*/saved_models/*.ckpt" | head -n 1)"
-[[ -f "$CKPT" ]] || { echo "ERROR: no .ckpt found under $RUN_DIR"; exit 1; }
+# Prefer EMA safetensors (HF format dir with model.safetensors + config.yaml)
+# over the raw-weight .ckpt — gives EMA-eval numbers comparable to wandb.
+CKPT="$(find "$RUN_DIR" -path "*/saved_models/*/model.safetensors" | head -n 1)"
+if [[ -z "$CKPT" ]]; then
+    echo "INFO: no EMA model.safetensors found, falling back to raw-weight .ckpt"
+    CKPT="$(find "$RUN_DIR" -path "*/saved_models/*.ckpt" | head -n 1)"
+fi
+[[ -f "$CKPT" ]] || { echo "ERROR: no checkpoint found under $RUN_DIR"; exit 1; }
+echo "Selected checkpoint: $CKPT"
 
 # Pull benchmark + data path from the training config
 BENCHMARK_NAME="$(grep '^benchmark_name:' "$TRAIN_FOLDER" | awk '{print $2}')"

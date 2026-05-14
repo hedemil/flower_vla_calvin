@@ -31,6 +31,7 @@ class EMASafetensorsCheckpoint(Callback):
         mode: str = "max",
         every_n_epochs: int = 10,
         hydra_config_path: Optional[str] = None,
+        top_k: int = 1,
     ):
         if mode not in ("max", "min"):
             raise ValueError(f"mode must be 'max' or 'min', got {mode}")
@@ -40,6 +41,12 @@ class EMASafetensorsCheckpoint(Callback):
         self.every_n_epochs = every_n_epochs
         self._hydra_config_path = Path(hydra_config_path) if hydra_config_path else None
         self.best = float("-inf") if mode == "max" else float("inf")
+        self.top_k = top_k
+        # FIFO of saved dirs; rotated when len > top_k.
+        self._saved_dirs: list[Path] = []
+        # Tracks the last metric value seen, to detect when rollout actually
+        # produced a new value vs. carrying forward the previous one.
+        self._last_seen_val: Optional[float] = None
 
     def _resolve_hydra_config(self) -> Optional[Path]:
         if self._hydra_config_path is not None and self._hydra_config_path.exists():
@@ -58,13 +65,25 @@ class EMASafetensorsCheckpoint(Callback):
     def on_validation_epoch_end(self, trainer: Trainer, pl_module: LightningModule) -> None:
         if not trainer.is_global_zero:
             return
-        if self.every_n_epochs > 0 and trainer.current_epoch % self.every_n_epochs != 0:
-            return
+        # NOTE: the `every_n_epochs % current_epoch` gate was REMOVED — it was
+        # broken when `rollout_lh_skip_epochs != 0`. Validation passes happen
+        # at epochs {skip, skip+freq, skip+2*freq, ...}, e.g. {1, 11, 21, ...}
+        # for skip=1/freq=10, none of which are multiples of 10. The metric=None
+        # guard below is the correct gate: this hook fires after every
+        # validation pass, and `eval_lh/avg_seq_len` is only present in
+        # callback_metrics when the rollout callback actually ran rollouts.
 
         metric = trainer.callback_metrics.get(self.monitor)
         if metric is None:
             return
         metric_val = metric.item() if isinstance(metric, torch.Tensor) else float(metric)
+
+        # `callback_metrics` carries the last logged value forward across
+        # validation epochs. If the value hasn't changed since we last looked,
+        # no new rollout actually produced this number — skip.
+        if self._last_seen_val is not None and metric_val == self._last_seen_val:
+            return
+        self._last_seen_val = metric_val
 
         improved = (metric_val > self.best) if self.mode == "max" else (metric_val < self.best)
         if not improved:
@@ -91,3 +110,13 @@ class EMASafetensorsCheckpoint(Callback):
             shutil.copy(str(cfg_path), str(out_dir / "config.yaml"))
 
         logger.info(f"EMASafetensorsCheckpoint: saved EMA weights to {out_dir} ({self.monitor}={metric_val:.4f})")
+
+        # Rotate: keep only the most recent `top_k` saves to bound disk usage.
+        self._saved_dirs.append(out_dir)
+        while self.top_k > 0 and len(self._saved_dirs) > self.top_k:
+            old = self._saved_dirs.pop(0)
+            try:
+                shutil.rmtree(old)
+                logger.info(f"EMASafetensorsCheckpoint: rotated out {old}")
+            except Exception as e:
+                logger.warning(f"EMASafetensorsCheckpoint: failed to remove {old}: {e}")

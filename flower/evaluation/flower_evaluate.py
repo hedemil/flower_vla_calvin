@@ -139,11 +139,14 @@ def print_and_save(total_results, plan_dicts, cfg, log_dir=None):
         cnt_success = Counter()
         cnt_fail = Counter()
 
+        # `result` may be an int (legacy) or a rich dict (new); extract the
+        # chain-length count uniformly.
         for result, (_, sequence) in zip(results, sequences):
-            for successful_tasks in sequence[:result]:
+            n_done = result["success_counter"] if isinstance(result, dict) else int(result)
+            for successful_tasks in sequence[:n_done]:
                 cnt_success[successful_tasks] += 1
-            if result < len(sequence):
-                failed_task = sequence[result]
+            if n_done < len(sequence):
+                failed_task = sequence[n_done]
                 cnt_fail[failed_task] += 1
 
         total = cnt_success + cnt_fail
