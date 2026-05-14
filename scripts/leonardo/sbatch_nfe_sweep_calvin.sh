@@ -103,11 +103,16 @@ for NFE in $NFES; do
     echo "NFE=$NFE  →  $EVAL_OUT"
     echo "Start: $(date)"
     echo "============================================"
+    # NOTE: checkpoint path contains '=' signs from PL's filename template
+    # (e.g. .../epoch=69_eval_lh/avg_seq_len=4.23.ckpt). Hydra's override grammar
+    # would parse the embedded '=' as additional key=value separators. Quoting
+    # the value with single quotes tells Hydra to treat the whole thing as a
+    # string literal. train_folder also gets the same treatment defensively.
     python flower/evaluation/flower_evaluate.py \
-        train_folder="$TRAIN_FOLDER" \
-        checkpoint="$CKPT" \
+        "train_folder='$TRAIN_FOLDER'" \
+        "checkpoint='$CKPT'" \
         log_dir="$EVAL_OUT" \
-        dataset_path="$DATA_DIR" \
+        "dataset_path='$DATA_DIR'" \
         num_sequences="$NUM_SEQUENCES" \
         num_sampling_steps="$NFE" \
         log_wandb=False \

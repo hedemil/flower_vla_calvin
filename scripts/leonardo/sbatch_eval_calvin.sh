@@ -100,11 +100,13 @@ cd "$CODE_DIR"
 
 # Note: flower_evaluate.py uses Hydra config eval_calvin.yaml by default.
 # We override train_folder/checkpoint/log_dir/num_sequences/dataset_path.
+# Single-quoted values shield embedded '=' signs (PL filename pattern
+# epoch=NN_metric=X.XX.ckpt) from Hydra's override grammar parser.
 python flower/evaluation/flower_evaluate.py \
-    train_folder="$TRAIN_FOLDER" \
-    checkpoint="$CKPT" \
+    "train_folder='$TRAIN_FOLDER'" \
+    "checkpoint='$CKPT'" \
     log_dir="$EVAL_OUT" \
-    dataset_path="$DATA_DIR" \
+    "dataset_path='$DATA_DIR'" \
     num_sequences=1000 \
     log_wandb=False \
     "$@"

@@ -334,10 +334,13 @@ def load_mode_from_safetensor(
     # Remove 'ckpt_path' if it exists in load_cfg to avoid the error
     if 'ckpt_path' in load_cfg:
         del load_cfg['ckpt_path']
-    
-    # Set the pretrained model path
+
+    # Set the pretrained model path AND force the load flag — FLOWERVLA.__init__
+    # only calls _load_pretrained_weights when both are set. Configs default to
+    # load_pretrained=False because training uses an external loader.
     load_cfg["pretrained_model_path"] = str(ckpt_path)
-    
+    load_cfg["load_pretrained"] = True
+
     # Instantiate the model
     model = hydra.utils.instantiate(load_cfg)
 
