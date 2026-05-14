@@ -185,9 +185,12 @@ srun python flower/training_calvin.py \
     callbacks.rollout_lh.num_sequences=300 \
     logger.name="$WANDB_NAME" \
     hydra.run.dir="$CODE_DIR/logs/runs/\${now:%Y-%m-%d}/${MODEL}_${BENCHMARK_NAME}_${SLURM_JOB_ID}" \
-    +callbacks.checkpoint.save_weights_only=True \
     "${EXTRA_ARGS[@]}" \
     "$@"
+# NOTE: removed `+callbacks.checkpoint.save_weights_only=True` — it stripped
+# the EMA weights from saved checkpoints, blocking post-hoc EMA-based eval.
+# Full PL checkpoint is ~12 GB but includes EMA via the callback state_dict,
+# which the post-hoc NFE sweep / re-eval pipelines depend on.
 
 echo ""
 echo "Job $SLURM_JOB_ID finished at $(date)"
