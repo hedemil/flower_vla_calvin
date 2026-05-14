@@ -108,6 +108,9 @@ for NFE in $NFES; do
     # would parse the embedded '=' as additional key=value separators. Quoting
     # the value with single quotes tells Hydra to treat the whole thing as a
     # string literal. train_folder also gets the same treatment defensively.
+    # num_videos=0: eval_calvin.yaml defaults to 30, which triggers wandb video
+    # logging that requires moviepy+imageio (not installed) and crashes the run
+    # AFTER all rollouts complete, losing the JSONL. We don't need videos.
     python flower/evaluation/flower_evaluate.py \
         "train_folder='$TRAIN_FOLDER'" \
         "checkpoint='$CKPT'" \
@@ -115,6 +118,7 @@ for NFE in $NFES; do
         "dataset_path='$DATA_DIR'" \
         num_sequences="$NUM_SEQUENCES" \
         num_sampling_steps="$NFE" \
+        num_videos=0 \
         log_wandb=False \
         "$@"
     echo "NFE=$NFE done at $(date)"

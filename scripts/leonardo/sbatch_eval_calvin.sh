@@ -102,12 +102,14 @@ cd "$CODE_DIR"
 # We override train_folder/checkpoint/log_dir/num_sequences/dataset_path.
 # Single-quoted values shield embedded '=' signs (PL filename pattern
 # epoch=NN_metric=X.XX.ckpt) from Hydra's override grammar parser.
+# num_videos=0: avoid wandb video-logging crash that needs moviepy+imageio.
 python flower/evaluation/flower_evaluate.py \
     "train_folder='$TRAIN_FOLDER'" \
     "checkpoint='$CKPT'" \
     log_dir="$EVAL_OUT" \
     "dataset_path='$DATA_DIR'" \
     num_sequences=1000 \
+    num_videos=0 \
     log_wandb=False \
     "$@"
 
