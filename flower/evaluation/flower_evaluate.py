@@ -126,7 +126,9 @@ def print_and_save(total_results, plan_dicts, cfg, log_dir=None):
         else:
             epoch = checkpoint.stem
         print(f"Results for Epoch {epoch}:")
-        avg_seq_len = np.mean(results)
+        # results is a list of rich dicts (new format) or ints (legacy);
+        # _chain_lengths handles both.
+        avg_seq_len = float(np.mean(_chain_lengths(results)))
         ranking[epoch] = avg_seq_len
         chain_sr = {i + 1: sr for i, sr in enumerate(count_success(results))}
         print(f"Average successful sequence length: {avg_seq_len}")
