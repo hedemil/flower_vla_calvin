@@ -142,6 +142,23 @@ def _format_table(df: pd.DataFrame, rf_epoch: int, imf_epoch: int) -> str:
     return "\n".join(lines)
 
 
+def _best_epoch(jsonl: Path) -> int:
+    """Return the epoch with the highest mean success_counter (avg_seq_len)."""
+    rows = []
+    for line in open(jsonl):
+        line = line.strip()
+        if not line:
+            continue
+        rec = json.loads(line)
+        if rec.get("kind") == "chain":
+            rows.append(rec)
+    if not rows:
+        raise SystemExit(f"No chain records in {jsonl}")
+    df = pd.DataFrame(rows)
+    means = df.groupby("epoch")["success_counter"].mean()
+    return int(means.idxmax())
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--rf-jsonl", type=Path, required=True,
@@ -149,15 +166,27 @@ def main() -> None:
     ap.add_argument("--imf-jsonl", type=Path, required=True,
                     help="rollout_episodes.jsonl from the iMF fine-tune run")
     ap.add_argument("--epoch", type=int, default=None,
-                    help="Eval epoch to analyse (default: latest in each file)")
+                    help="Single eval epoch to analyse in BOTH files (default: latest)")
+    ap.add_argument("--rf-epoch", type=int, default=None,
+                    help="Pin RF to a specific epoch (overrides --epoch for RF)")
+    ap.add_argument("--imf-epoch", type=int, default=None,
+                    help="Pin iMF to a specific epoch (overrides --epoch for iMF)")
+    ap.add_argument("--best", action="store_true",
+                    help="Use the best-avg_seq_len epoch in each file (per-file best vs best)")
     ap.add_argument("--out", type=Path, required=False)
     ap.add_argument("--alpha", type=float, default=0.05)
     args = ap.parse_args()
 
-    rf_df, rf_epoch = _load_chains(args.rf_jsonl, epoch=args.epoch)
-    imf_df, imf_epoch = _load_chains(args.imf_jsonl, epoch=args.epoch)
+    # Resolve per-file epoch: explicit > --best > common --epoch > latest
+    rf_target = args.rf_epoch if args.rf_epoch is not None else (
+        _best_epoch(args.rf_jsonl) if args.best else args.epoch)
+    imf_target = args.imf_epoch if args.imf_epoch is not None else (
+        _best_epoch(args.imf_jsonl) if args.best else args.epoch)
+
+    rf_df, rf_epoch = _load_chains(args.rf_jsonl, epoch=rf_target)
+    imf_df, imf_epoch = _load_chains(args.imf_jsonl, epoch=imf_target)
     if rf_epoch != imf_epoch:
-        print(f"[warn] rf_epoch={rf_epoch} != imf_epoch={imf_epoch}; results compare different checkpoint epochs")
+        print(f"[note] rf_epoch={rf_epoch} != imf_epoch={imf_epoch} — comparing each model at its specified/best epoch")
 
     merged = _pair(rf_df, imf_df)
     if len(merged) == 0:
