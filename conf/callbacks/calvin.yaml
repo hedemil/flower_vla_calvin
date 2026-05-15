@@ -21,3 +21,17 @@ checkpoint:
   dirpath: saved_models
   filename: '{epoch:02d}_{eval_lh/avg_seq_len:.2f}'
   every_n_epochs: ${callbacks.rollout_lh.rollout_freq}
+
+# Saves EMA weights as compact safetensors (~1.5 GB) on every metric improvement.
+# With top_k=1 the previous best is deleted before the new one lands.
+# Pairs with sbatch_finetune_calvin.sh's +callbacks.checkpoint.save_weights_only=True:
+# the PL .ckpt stays small (raw weights only) for resume capability, while the
+# EMA weights are preserved separately here for post-hoc eval.
+ema_safetensors_checkpoint:
+  _target_: flower.callbacks.ema_safetensors_checkpoint.EMASafetensorsCheckpoint
+  dirpath: saved_models
+  monitor: eval_lh/avg_seq_len
+  mode: max
+  every_n_epochs: ${callbacks.rollout_lh.rollout_freq}
+  top_k: 1
+  hydra_config_path: null
