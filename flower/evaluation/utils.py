@@ -212,10 +212,10 @@ def get_default_mode_and_env(train_folder, dataset_path, checkpoint, env=None, l
         device = 'cpu'
         print("WARNING: Using CPU for evaluation.")
     
-    cfg.datamodule.root_data_dir = dataset_path
-    data_module = hydra.utils.instantiate(cfg.datamodule, num_workers=0)
-    
+    data_module = None
     if prep_dm_and_deps:
+        cfg.datamodule.root_data_dir = dataset_path
+        data_module = hydra.utils.instantiate(cfg.datamodule, num_workers=0)
         data_module.prepare_data()
         data_module.setup()
         dataloader = data_module.val_dataloader()
