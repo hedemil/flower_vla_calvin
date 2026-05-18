@@ -191,6 +191,8 @@ def main(cfg: DictConfig) -> None:
     bench_cfg = OmegaConf.select(cfg, "bench") or OmegaConf.create({})
     n_passes = int(OmegaConf.select(bench_cfg, "n_passes") or 200)
     n_warmup = int(OmegaConf.select(bench_cfg, "n_warmup") or 20)
+    compile_flag = bool(OmegaConf.select(bench_cfg, "compile") or False)
+    compile_mode = str(OmegaConf.select(bench_cfg, "compile_mode") or "default")
     out_json = OmegaConf.select(bench_cfg, "out_json")
     if out_json is None:
         raise SystemExit("Provide bench.out_json=path/to/output.json")
@@ -213,6 +215,14 @@ def main(cfg: DictConfig) -> None:
     model = model.to(device)
     model.eval()
     model.reset()
+
+    if compile_flag:
+        LOG.info("Enabling torch.compile(mode=%s) on encode_observations + dit_forward[_meanflow]", compile_mode)
+        model.encode_observations = torch.compile(model.encode_observations, mode=compile_mode)
+        if hasattr(model, "dit_forward"):
+            model.dit_forward = torch.compile(model.dit_forward, mode=compile_mode)
+        if hasattr(model, "dit_forward_meanflow"):
+            model.dit_forward_meanflow = torch.compile(model.dit_forward_meanflow, mode=compile_mode)
 
     obs, goal = _make_synthetic_obs(model, device)
     timings = _bench_components(model, obs, goal, n_passes=n_passes, n_warmup=n_warmup)
@@ -238,6 +248,8 @@ def main(cfg: DictConfig) -> None:
         "n_passes": n_passes,
         "n_warmup": n_warmup,
         "act_window_size": int(getattr(model, "act_window_size", 0)),
+        "compile": compile_flag,
+        "compile_mode": compile_mode if compile_flag else None,
         "torch_version": torch.__version__,
         "vlm_ms": timings["vlm_ms"].tolist(),
         "dit_ms": timings["dit_ms"].tolist(),

@@ -8,22 +8,26 @@
 # See docs/latency_methodology.md for the full reconciliation argument.
 #
 # Usage:
-#   bash scripts/bench_paper_setup.sh rf            # FLOWER baseline, LIBERO-10, chunk 10
-#   bash scripts/bench_paper_setup.sh imf           # iMF, LIBERO-10, chunk 10
-#   bash scripts/bench_paper_setup.sh pretrained_rf # CALVIN pretrained FLOWER, chunk 20
+#   bash scripts/bench_paper_setup.sh rf                    # FLOWER baseline, LIBERO-10, chunk 10
+#   bash scripts/bench_paper_setup.sh imf                   # iMF, LIBERO-10, chunk 10
+#   bash scripts/bench_paper_setup.sh pretrained_rf         # CALVIN pretrained FLOWER, chunk 20
+#   bash scripts/bench_paper_setup.sh rf compile            # same + torch.compile (default mode)
+#   bash scripts/bench_paper_setup.sh imf compile reduce-overhead  # custom compile mode
 #
-# Output: tools/results/_cache/latency_synth/latency_<variant>_paper.json
+# Output: tools/results/_cache/latency_synth/latency_<variant>_paper[_compile].json
 
 set -euo pipefail
 
 VARIANT="${1:-rf}"
+COMPILE_ARG="${2:-}"
+COMPILE_MODE="${3:-default}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CKPT_ROOT="${REPO_ROOT}/checkpoints"
 OUT_DIR="${REPO_ROOT}/tools/results/_cache/latency_synth"
 mkdir -p "$OUT_DIR"
 
 case "$VARIANT" in
-    rf)
+    rf|flower)
         CKPT_DIR="${CKPT_ROOT}/flower/libero_10"
         CKPT_FILE="${CKPT_DIR}/avg_seq_len=0.90.ckpt"
         VARIANT_LABEL="rf_paper"
@@ -39,10 +43,16 @@ case "$VARIANT" in
         VARIANT_LABEL="rf_pretrained_paper"
         ;;
     *)
-        echo "Unknown variant: $VARIANT (expected: rf | imf | pretrained_rf)" >&2
+        echo "Unknown variant: $VARIANT (expected: rf | flower | imf | pretrained_rf)" >&2
         exit 1
         ;;
 esac
+
+COMPILE_FLAG="false"
+if [[ "$COMPILE_ARG" == "compile" ]]; then
+    COMPILE_FLAG="true"
+    VARIANT_LABEL="${VARIANT_LABEL}_compile"
+fi
 
 TRAIN_FOLDER="${CKPT_DIR}/.hydra/config.yaml"
 if [ ! -f "$TRAIN_FOLDER" ]; then
@@ -70,5 +80,7 @@ python flower/evaluation/bench_inference.py \
     checkpoint="'$CKPT_FILE'" \
     +bench.n_passes=1000 \
     +bench.n_warmup=50 \
+    +bench.compile="$COMPILE_FLAG" \
+    +bench.compile_mode="$COMPILE_MODE" \
     +bench.out_json="'$OUT_JSON'" \
     +variant_label="$VARIANT_LABEL"
