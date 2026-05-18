@@ -237,6 +237,7 @@ def main(cfg: DictConfig) -> None:
         "hardware": _hardware_tag(),
         "n_passes": n_passes,
         "n_warmup": n_warmup,
+        "act_window_size": int(getattr(model, "act_window_size", 0)),
         "torch_version": torch.__version__,
         "vlm_ms": timings["vlm_ms"].tolist(),
         "dit_ms": timings["dit_ms"].tolist(),

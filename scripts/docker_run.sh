@@ -32,6 +32,7 @@ docker run -it --rm \
     -v $(pwd)/logs:/workspace/flower_vla_calvin/logs \
     -v $(pwd)/preprocess:/workspace/flower_vla_calvin/preprocess \
     -v $(pwd)/scripts:/workspace/flower_vla_calvin/scripts \
+    -v $(pwd)/tools:/workspace/flower_vla_calvin/tools \
     -v ~/.cache/huggingface:/appuser/.cache/huggingface \
     -v ~/.cache/wandb:/appuser/.cache/wandb \
     -w /workspace/flower_vla_calvin \

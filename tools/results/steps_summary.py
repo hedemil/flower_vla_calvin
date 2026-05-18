@@ -33,7 +33,7 @@ from scipy import stats as scstats
 from . import style
 
 
-N_FROM_VARIANT = {"rf_n1": 1, "rf_n2": 2, "rf_n3": 3, "rf_n4": 4, "rf": 4}
+N_FROM_VARIANT = {"rf_n1": 1, "rf_n2": 2, "rf_n3": 3, "rf_n4": 4, "rf": 4, "imf": 1}
 
 
 def _filter(df: pd.DataFrame, suite: str, variants: Iterable[str]) -> pd.DataFrame:
@@ -155,8 +155,9 @@ def main() -> None:
             mean_fmt = "[no data]"
         else:
             mean_fmt = f"${r.mean_steps:.1f} \\pm {r.std_steps:.1f}$"
+        n_samp_fmt = f"{int(r.n_sampling)}" if pd.notna(r.n_sampling) else "--"
         lines.append(
-            f"{r.variant} & {int(r.n_sampling) if r.n_sampling else '--'} & "
+            f"{r.variant} & {n_samp_fmt} & "
             f"{r.n_success}/{r.n_total} & {mean_fmt} & {d_fmt} & {p_fmt} \\\\"
         )
     lines += ["\\bottomrule", "\\end{tabular}", ""]
