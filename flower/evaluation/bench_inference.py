@@ -242,6 +242,12 @@ def main(cfg: DictConfig) -> None:
     if override:
         variant_info["variant"] = str(override)
 
+    # `_identify_variant` reads `n_sampling` from the *training* config; for
+    # eval-time NFE sweeps we want the *runtime* value the model actually used.
+    runtime_nfe = getattr(model, "num_sampling_steps", None)
+    if runtime_nfe is not None:
+        variant_info["n_sampling"] = int(runtime_nfe)
+
     payload = {
         **variant_info,
         "hardware": _hardware_tag(),
