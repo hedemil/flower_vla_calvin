@@ -1128,8 +1128,17 @@ class MeanFlowerVLA(pl.LightningModule):
                 "rgb_static": rgb_static,
                 "rgb_gripper": rgb_gripper
             },
-            "lang_text": [goal["lang_text"]]
+            "lang_text": [goal["lang_text"]],
         }
+        # Pass proprioception through at inference. The CALVIN wrapper exposes
+        # obs["robot_obs"] normalized identically to training (process_state with
+        # the same proprio_state config), shaped [1, 1, n_kept] to match the
+        # training batch. Omitting it makes encode_observations fall back to a
+        # zero proprio embedding, so an iMF model trained with use_proprio=True
+        # was being evaluated blind to proprioception it relied on. Guarded by
+        # use_proprio so a no-proprio model is unaffected.
+        if self.use_proprio and "robot_obs" in obs:
+            batch["robot_obs"] = obs["robot_obs"]
         features = self.encode_observations(batch)
 
         noise = torch.randn(
