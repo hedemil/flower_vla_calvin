@@ -29,6 +29,23 @@ num_workers: 1
 benchmark_name: ${libero_benchmark} # calvin_abcd
 libero_benchmark: libero_spatial # libero_goal # libero_spatial, libero_object, LIBERO_GOAL, LIBERO_90, LIBERO_10
 
+# LIBERO insulation: the shared model yamls now default to Recipe C (CALVIN primary).
+# Pin LIBERO's optimizer/scheduler to the original pre-Recipe-C values so changing the
+# model defaults does NOT alter LIBERO results. (CLI overrides, if any were used, still win.)
+# VERIFY with: python flower/training_libero.py --cfg job | grep -A12 'optimizer:'
+model:
+  optimizer:
+    transformer_weight_decay: 0.1
+    vlm_weight_decay: 0.001
+    learning_rate: 1e-4
+    vlm_lr_scale: 0.1
+  lr_scheduler:
+    lr_scheduler:
+      init_lr: 1e-4
+      total_steps: 30000
+      phase_ratio: "(0.01, 0.39, 0.6)"
+      lr: 1e-4
+
 
 trainer:
   devices: ${devices}

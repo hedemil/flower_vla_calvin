@@ -12,7 +12,7 @@ log_dir: ./logs
 slurm: false
 seed: 242
 device: 'cuda'
-batch_size: 4 # 8 per GPU
+batch_size: 8 # Recipe C: eff. batch 32 with devices=4 and accumulate_grad_batches=1
 devices: 2 # 4 numbers of GPUs
 act_dim: 7
 proprio_dims: 7
@@ -36,7 +36,7 @@ trainer:
   sync_batchnorm: True
   accelerator: gpu
   strategy: "ddp_find_unused_parameters_true"
-  accumulate_grad_batches: 4  # Simulates effective batch_size=32
+  accumulate_grad_batches: 1  # Recipe C (eff. batch 32 = batch_size 8 x 4 GPUs x accum 1)
   limit_train_batches: 1000
   limit_val_batches: 4
 
