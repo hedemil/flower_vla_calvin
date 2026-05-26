@@ -111,6 +111,45 @@ def dump_episodes_jsonl(results, out_path: Path, *, epoch: str | int = "final") 
     logger.info(f"Wrote {n_chains} chain records + {n_subtasks} subtask records to {out_path}")
 
 
+def dump_actions_jsonl(results, out_path: Path, *, multistep: int, epoch: str | int = "final") -> None:
+    """Write one record per *attempted* subtask carrying its executed action stream.
+
+    Only runs when cfg.log_actions was set during eval (else per_subtask_actions
+    is absent / all None). Schema (kind="actions"):
+        sequence_index, subtask_position, subtask_name, success, n_steps,
+        multistep (chunk re-plan period), actions ([n_steps, action_dim]).
+    Consumed by tools/results/calvin_smoothness.py.
+    """
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    n_records = 0
+    with open(out_path, "a") as f:
+        for r in results:
+            if not isinstance(r, dict) or "per_subtask_actions" not in r:
+                continue
+            for pos, (name, succ, n_steps, acts) in enumerate(zip(
+                r["per_subtask_names"],
+                r["per_subtask_success"],
+                r["per_subtask_steps"],
+                r["per_subtask_actions"],
+            )):
+                if acts is None:
+                    continue  # subtask never attempted (chain already broken)
+                rec = {
+                    "kind": "actions",
+                    "epoch_tag": str(epoch),
+                    "sequence_index": int(r["sequence_index"]),
+                    "subtask_position": int(pos),
+                    "subtask_name": str(name),
+                    "success": int(bool(succ)),
+                    "n_steps": int(n_steps),
+                    "multistep": int(multistep),
+                    "actions": acts,
+                }
+                f.write(json.dumps(rec) + "\n")
+                n_records += 1
+    logger.info(f"Wrote {n_records} action records to {out_path}")
+
+
 def print_and_save(total_results, plan_dicts, cfg, log_dir=None):
     if log_dir is None:
         log_dir = get_log_dir(cfg.train_folder)
@@ -254,6 +293,7 @@ def evaluate_sequence(
     per_subtask_names: list[str] = []
     per_subtask_success: list[int] = []
     per_subtask_steps: list[int] = []
+    per_subtask_actions: list = []  # one action-stream (or None) per subtask slot
     chain_broken = False
     if cfg.debug:
         time.sleep(1)
@@ -266,15 +306,17 @@ def evaluate_sequence(
             per_subtask_names.append(str(subtask))
             per_subtask_success.append(0)
             per_subtask_steps.append(-1)
+            per_subtask_actions.append(None)  # subtask never attempted
             continue
         if record:
             rollout_video.new_subtask()
-        success, n_steps = rollout(env, model, task_checker, cfg, subtask, lang_embeddings, val_annotations, record, rollout_video)
+        success, n_steps, actions_log = rollout(env, model, task_checker, cfg, subtask, lang_embeddings, val_annotations, record, rollout_video)
         if record:
             rollout_video.draw_outcome(success)
         per_subtask_names.append(str(subtask))
         per_subtask_success.append(int(bool(success)))
         per_subtask_steps.append(int(n_steps))
+        per_subtask_actions.append(actions_log)
         if success:
             success_counter += 1
         else:
@@ -286,7 +328,15 @@ def evaluate_sequence(
         "per_subtask_names": per_subtask_names,
         "per_subtask_success": per_subtask_success,
         "per_subtask_steps": per_subtask_steps,
+        "per_subtask_actions": per_subtask_actions,
     }
+
+
+def _action_to_list(action):
+    """Flatten a model.step() action (torch tensor or array) to a 1-D float list."""
+    if torch.is_tensor(action):
+        action = action.detach().float().cpu().numpy()
+    return np.asarray(action, dtype=np.float64).reshape(-1).tolist()
 
 
 def rollout(env, model, task_oracle, cfg, subtask, lang_embeddings, val_annotations, record=False, rollout_video=None):
@@ -303,9 +353,18 @@ def rollout(env, model, task_oracle, cfg, subtask, lang_embeddings, val_annotati
     model.reset()
     start_info = env.get_info()
 
+    # Optionally record the executed action stream for trajectory-smoothness
+    # analysis. Gated by cfg.log_actions to keep normal evals lean. The chunk
+    # boundaries (re-planning every model.multistep steps) start at step 0 here
+    # because model.reset() above zeroed the rollout_step_counter.
+    log_actions = bool(cfg.get("log_actions", False))
+    actions_log = [] if log_actions else None
+
     steps_taken = cfg.ep_len
     for step in range(cfg.ep_len):
         action = model.step(obs, goal)
+        if log_actions:
+            actions_log.append(_action_to_list(action))
         obs, _, _, current_info = env.step(action)
         if cfg.debug:
             img = env.render(mode="rgb_array")
@@ -322,12 +381,12 @@ def rollout(env, model, task_oracle, cfg, subtask, lang_embeddings, val_annotati
                 print(colored("success", "green"), end=" ")
             if record:
                 rollout_video.add_language_instruction(lang_annotation)
-            return True, steps_taken
+            return True, steps_taken, actions_log
     if cfg.debug:
         print(colored("fail", "red"), end=" ")
     if record:
         rollout_video.add_language_instruction(lang_annotation)
-    return False, steps_taken
+    return False, steps_taken, actions_log
 
 
 @hydra.main(config_path="../../conf", config_name="eval_calvin")
@@ -386,6 +445,15 @@ def main(cfg):
     # works uniformly on training-time rollouts and post-training final eval.
     jsonl_path = Path(log_dir) / "rollout_episodes.jsonl"
     dump_episodes_jsonl(results[Path(cfg.checkpoint)], jsonl_path, epoch="final")
+
+    # Optional per-step action streams for trajectory-smoothness analysis.
+    if cfg.get("log_actions", False):
+        actions_path = Path(log_dir) / "rollout_actions.jsonl"
+        dump_actions_jsonl(
+            results[Path(cfg.checkpoint)], actions_path,
+            multistep=int(getattr(model, "multistep", cfg.get("multistep", 1)) or 1),
+            epoch="final",
+        )
 
     if log_wandb:
         run.finish()

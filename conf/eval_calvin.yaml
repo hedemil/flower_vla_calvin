@@ -31,3 +31,8 @@ ep_len: 360
 num_sampling_steps: 4
 multistep: 10
 use_bf16: true
+
+# Dump executed per-step action streams to rollout_actions.jsonl for
+# trajectory-smoothness analysis (tools/results/calvin_smoothness.py). Off by
+# default; enable on the reduced re-run with log_actions=true.
+log_actions: false
