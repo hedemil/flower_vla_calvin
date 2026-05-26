@@ -133,15 +133,21 @@ def trajectory_metrics(actions: list, multistep: int, fs: float) -> dict:
     pose = arr[:, :-1] if arr.shape[1] > 1 else arr   # all but gripper
     gripper = arr[:, -1]
     speed = np.linalg.norm(pose, axis=1)
-    diffs1 = np.linalg.norm(np.diff(pose, axis=0), axis=1)
-    diffs2 = np.linalg.norm(np.diff(pose, n=2, axis=0), axis=1)
+    diffs1 = np.linalg.norm(np.diff(pose, axis=0), axis=1)         # |Δa| (≈ acceleration; a is rel/velocity)
+    diffs2 = np.linalg.norm(np.diff(pose, n=2, axis=0), axis=1)    # |Δ²a| (≈ jerk)
     b, it, ratio = chunk_boundary_jumps(pose, multistep)
     return {
         "n_steps": int(arr.shape[0]),
         "ldlj": log_dimensionless_jerk(speed, fs),
         "sparc": sparc(speed, fs),
+        # Per-step (length-normalised) — the fair cross-trajectory comparison.
         "mean_diff1": float(diffs1.mean()) if diffs1.size else float("nan"),
         "mean_diff2": float(diffs2.mean()) if diffs2.size else float("nan"),
+        # Sum-based forms with the names used in the smoothness literature.
+        # NOTE: both grow with trajectory length, so they confound with
+        # steps-to-completion; prefer the per-step / paired versions for claims.
+        "tv": float(diffs1.sum()) if diffs1.size else float("nan"),            # total variation Σ|Δa|
+        "jerk_cost": float((diffs2 ** 2).sum()) if diffs2.size else float("nan"),  # Σ|Δ²a|²
         "chunk_jump_boundary": b,
         "chunk_jump_interior": it,
         "chunk_jump_ratio": ratio,
@@ -153,7 +159,7 @@ def trajectory_metrics(actions: list, multistep: int, fs: float) -> dict:
 # Loading / aggregation
 # --------------------------------------------------------------------------- #
 
-METRIC_COLS = ["ldlj", "sparc", "mean_diff1", "mean_diff2",
+METRIC_COLS = ["ldlj", "sparc", "mean_diff1", "mean_diff2", "tv", "jerk_cost",
                "chunk_jump_boundary", "chunk_jump_interior", "chunk_jump_ratio",
                "gripper_toggles"]
 SMOOTHER_HIGHER = {"ldlj": True, "sparc": True}  # for these, higher = smoother
