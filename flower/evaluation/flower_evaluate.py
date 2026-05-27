@@ -422,6 +422,12 @@ def main(cfg):
         model.num_sampling_steps = cfg.num_sampling_steps
     if cfg.multistep is not None:
         model.multistep = cfg.multistep
+
+    # Inference-time action smoothing (off by default). Set post-load so it
+    # toggles the same way as multistep / num_sampling_steps.
+    model.fix_chunk_noise = bool(cfg.get("fix_chunk_noise", False))
+    if model.fix_chunk_noise:
+        print("Fixed chunk noise ON.")
     print(model.num_sampling_steps, model.multistep)
     print(f"Model dtype: {next(model.parameters()).dtype}")
 

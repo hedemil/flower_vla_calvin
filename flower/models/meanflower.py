@@ -59,6 +59,11 @@ class MeanFlowerVLA(pl.LightningModule):
         use_readout_token: bool = False,
         use_proprio: bool = False,
         return_act_chunk: bool = False,
+        # Inference-time action smoothing (off by default). fix_chunk_noise
+        # reuses one sampling-noise tensor across chunks within a rollout so
+        # consecutive chunks decode from the same latent, removing the
+        # stochastic jump at chunk boundaries (zero extra cost).
+        fix_chunk_noise: bool = False,
         # DiT Configuration
         sampling_type: str = 'ln',
         dit_dim: int = 512,
@@ -169,6 +174,11 @@ class MeanFlowerVLA(pl.LightningModule):
         self.rollout_step_counter = 0
         self.pred_action_seq = None
         self.modality_scope = "lang"
+
+        # Inference-time action smoothing state (no-op unless enabled; can also
+        # be set post-load, see flower_evaluate.py).
+        self.fix_chunk_noise = fix_chunk_noise
+        self._fixed_noise = None   # cached sampling noise when fix_chunk_noise
 
         # Optimizer config
         self.optimizer_config = optimizer
@@ -1141,12 +1151,26 @@ class MeanFlowerVLA(pl.LightningModule):
             batch["robot_obs"] = obs["robot_obs"]
         features = self.encode_observations(batch)
 
-        noise = torch.randn(
-            len(features['features']),
-            self.act_window_size,
-            self.action_dim,
-            device=features['features'].device
-        )
+        if self.fix_chunk_noise:
+            # Reuse one noise tensor across chunks: iMF is deterministic given
+            # noise, so a fixed latent makes consecutive chunks land on the
+            # same solution branch, shrinking the boundary jump. Reset() clears
+            # the cache between rollouts.
+            if self._fixed_noise is None:
+                self._fixed_noise = torch.randn(
+                    len(features['features']),
+                    self.act_window_size,
+                    self.action_dim,
+                    device=features['features'].device,
+                )
+            noise = self._fixed_noise.to(features['features'].device)
+        else:
+            noise = torch.randn(
+                len(features['features']),
+                self.act_window_size,
+                self.action_dim,
+                device=features['features'].device
+            )
         return self.sample_actions(noise, features, inference=True)
 
     @torch.no_grad()
@@ -1175,6 +1199,7 @@ class MeanFlowerVLA(pl.LightningModule):
         """Reset model state for new rollout."""
         self.rollout_step_counter = 0
         self.pred_action_seq = None
+        self._fixed_noise = None
         self.eval()
 
     def on_train_start(self):

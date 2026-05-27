@@ -227,6 +227,14 @@ def get_default_mode_and_env(train_folder, dataset_path, checkpoint, env=None, l
         if env is None:
             rollout_cfg = OmegaConf.load(Path(__file__).parents[2] / "conf/callbacks/rollout_lh/calvin.yaml")
             env = hydra.utils.instantiate(rollout_cfg.env_cfg, dataset, device, show_gui=False)
+    else:
+        # Lightweight path (e.g. LIBERO eval): the datamodule's dataset, the
+        # CALVIN env and lang embeddings are not needed, but the image transforms
+        # are. Expose just the transforms config so the caller can instantiate
+        # them without loading any dataset off disk (the configured root_data_dir
+        # may not even exist locally).
+        from types import SimpleNamespace
+        data_module = SimpleNamespace(transforms=cfg.datamodule.transforms)
 
     # Fix for checkpoint path handling
     checkpoint_path = Path(checkpoint).expanduser()

@@ -36,3 +36,9 @@ use_bf16: true
 # trajectory-smoothness analysis (tools/results/calvin_smoothness.py). Off by
 # default; enable on the reduced re-run with log_actions=true.
 log_actions: false
+
+# Inference-time action smoothing for the iMF jitter study (off by default;
+# combine with log_actions=true to measure the effect). fix_chunk_noise reuses
+# one sampling-noise tensor across chunks within a rollout, removing the
+# stochastic jump at chunk boundaries at zero extra cost.
+fix_chunk_noise: false
