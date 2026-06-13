@@ -182,6 +182,31 @@ tools/**/__pycache__/
 
 # docs
 docs/thesis/**
+docs/thesis_final/**
 docs/figures/**
 
+# personal thesis working notes (kept on disk, out of the repo)
+docs/calvin_configs_and_results.md
+docs/calvin_run_inventory.md
+docs/calvin_thesis_workflow.md
+docs/download_checkpoints.md
+docs/evals.md
+docs/findings_calvin_paper_lr_gap.md
+docs/imf_jitter_smoothing.md
+docs/latency_methodology.md
+docs/run_analysis.md
+docs/thesis_results.md
+docs/verification_nfe1.md
+
 failure_modes/**
+
+# generated caches
+scripts/figures/results/
+tools/results/_cache/latency_synth/
+tools/results/_cache/latency_synth_4090/
+
+# root scratch (prevent reappearance)
+/calvin_smoothness*.pdf
+/calvin_smoothness*.png
+/datamix.pdf
+/output_logs/

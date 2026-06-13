@@ -101,27 +101,20 @@ sed -i 's/<YOUR_ACCOUNT>/your_actual_account/g' scripts/leonardo/sbatch_*.sh
 
 ---
 
-## 4. Debug Job (Run First!)
+## 4. Validate the Setup (Run First!)
 
-Always validate the setup before launching a long training:
+Before launching a long run, do a short smoke test on the debug QoS: submit a
+production training script with a tight time/epoch cap and confirm it reaches
+the first training steps.
 
 ```bash
-sbatch scripts/leonardo/sbatch_debug.sh libero
-# or
-sbatch scripts/leonardo/sbatch_debug.sh calvin
+sbatch --qos=boost_qos_dbg --time=00:30:00 \
+    scripts/leonardo/sbatch_train_libero.sh meanflower max_epochs=1
 ```
 
-This 30-minute job:
-1. Prints GPU info (`nvidia-smi`)
-2. Checks Python, PyTorch, CUDA versions
-3. Verifies Florence-2 loads from cache (offline)
-4. Checks data directories are accessible
-5. Runs 10 training batches to confirm end-to-end
-
-Check the output:
-```bash
-cat flower-debug_<JOBID>.out
-```
+Then check the output (`cat <job-name>_<JOBID>.out`) to confirm: GPUs visible,
+Florence-2 loads from the offline HF cache, data dirs are accessible, and
+training reaches the first steps end-to-end.
 
 ---
 
@@ -137,11 +130,11 @@ sbatch scripts/leonardo/sbatch_train_libero.sh
 sbatch scripts/leonardo/sbatch_train_libero.sh libero_benchmark=libero_goal batch_size=8
 
 # Different model
-sbatch scripts/leonardo/sbatch_train_libero.sh model=decoupled_meanflower
+sbatch scripts/leonardo/sbatch_train_libero.sh model=imf
 
 # From pretrained checkpoint
 sbatch scripts/leonardo/sbatch_train_libero.sh \
-    model=decoupled_meanflower \
+    model=flower \
     model.load_pretrained=True \
     model.pretrained_model_path=$FAST/flower_vla_calvin/checkpoints/pretrained/360000_model_weights.pt
 ```
@@ -320,5 +313,5 @@ rsync -avP "leonardo:/leonardo_scratch/fast/AIFAC_F02_024/project/flower_vla_cal
 | `scripts/leonardo/download_hf_models.py` | Pre-cache Florence-2 for offline use |
 | `scripts/leonardo/sbatch_train_libero.sh` | Production LIBERO training (24h) |
 | `scripts/leonardo/sbatch_train_calvin.sh` | Production CALVIN training (24h) |
-| `scripts/leonardo/sbatch_debug.sh` | Debug validation job (30 min) |
+| `scripts/leonardo/sbatch_train_libero_imf.sh` | Production LIBERO iMF training |
 | `scripts/leonardo/sync_wandb.sh` | Sync offline WandB runs |

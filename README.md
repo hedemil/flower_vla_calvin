@@ -22,9 +22,8 @@ decoder structure; they differ in the loss / sampling regime.
 | `flower` | `flower.models.flower.FLOWERVLA` | 4 | Rectified flow | Upstream FLOWER baseline. |
 | `meanflower` | `flower.models.meanflower.MeanFlowerVLA` | 1 | Mean Flow (logit-normal noise) | Single-step variant; meant to match FLOWER quality at 4× faster inference. |
 | `imf` | `flower.models.meanflower.MeanFlowerVLA` | 1 | Mean Flow + proprioception | `meanflower` with `use_proprioception=True`; the decoder receives joint state alongside image features. Best LIBERO numbers in this fork. |
-| `decoupled_meanflower` | `flower.models.meanflower.MeanFlowerVLA` | 1 | Decoupled Mean Flow | Splits DiT blocks into a `t`-conditioned encoder and an `r`-conditioned decoder; experimental ([arxiv 2510.24474](https://arxiv.org/abs/2510.24474)). |
 
-Configs live in `conf/model/{flower,meanflower,imf,decoupled_meanflower}.yaml`.
+Configs live in `conf/model/{flower,meanflower,imf}.yaml`.
 Architecture details for the MeanFlow variants are in
 [`docs/MEANFLOW.md`](docs/MEANFLOW.md) and
 [`docs/flower_meanflow_architecture.md`](docs/flower_meanflow_architecture.md).
@@ -149,6 +148,21 @@ checkpoints/pretrained/360000_model_weights.pt
 This is the default location read by `conf/model/flower.yaml` when
 `load_pretrained=True`.
 
+### Thesis flowereef backbones (RF + iMF)
+
+The two from-scratch flowereef pretrain backbones trained for this thesis (RF and
+iMF, same realised data mix) are published together at
+[`hedemil/flower-vla-flowereef-pretrain`](https://huggingface.co/hedemil/flower-vla-flowereef-pretrain)
+(one subfolder each: `rf/`, `imf/`). Download both with:
+
+```
+scripts/download_pretrain_backbones.sh
+```
+
+They are uploaded from the Leonardo login node with
+`scripts/leonardo/upload_pretrain_hf.py` (model card:
+`scripts/leonardo/pretrain_hf_model_card.md`).
+
 ---
 
 ## Training
@@ -186,11 +200,12 @@ python flower/training_libero.py \
 # MeanFlow (1-step)
 python flower/training_libero.py model=meanflower libero_benchmark=libero_object ...
 
-# iMF (1-step + proprio) — pretrained checkpoint recommended
+# iMF (1-step + proprio) — pretrained backbone recommended
+# get the flowereef backbones first: scripts/download_pretrain_backbones.sh
 python flower/training_libero.py \
     model=imf \
     libero_benchmark=libero_10 \
-    +pretrain_chk=./checkpoints/pretrained/imf_checkpoint_290000.safetensors \
+    +pretrain_chk=./checkpoints/pretrained_flowereef/imf/model.safetensors \
     devices=4 batch_size=8
 ```
 
@@ -224,7 +239,7 @@ Output goes to `evaluation/calvin_debug_evaluation/`.
 
 `<benchmark>` ∈ {`libero_spatial`, `libero_object`, `libero_goal`,
 `libero_10`, `libero_90`}.
-`<model>` ∈ {`flower`, `meanflower`, `imf`, `decoupled_meanflower`}.
+`<model>` ∈ {`flower`, `meanflower`, `imf`}.
 
 Expected checkpoint layout (the script auto-detects `.ckpt` or
 `.safetensors`):
@@ -269,7 +284,7 @@ flower_vla_calvin/
 ├── conf/                      # Hydra configs
 │   ├── config_{calvin,libero}.yaml
 │   ├── eval_{calvin,libero}.yaml
-│   ├── model/                 #   flower / meanflower / imf / decoupled_meanflower
+│   ├── model/                 #   flower / meanflower / imf
 │   └── datamodule/, callbacks/, annotations/
 ├── scripts/                   # Runnable scripts
 │   ├── run_evaluation.sh, run_libero_evaluation.sh
