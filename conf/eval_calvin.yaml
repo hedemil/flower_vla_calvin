@@ -32,6 +32,14 @@ num_sampling_steps: 4
 multistep: 10
 use_bf16: true
 
+# Decoupled-clock latency study: integer control-step delay between observation
+# and actuation (d). 0 = today's synchronous sim (no-op). d>0 makes the robot act
+# on a stale observation while the policy "thinks", emulating inference latency on
+# a real robot. Map a measured latency L (ms) to d = round(L / 33.3). 4090 operating
+# points: iMF ~32.9 ms -> d=1, RF ~67.0 ms -> d=2. Swept by
+# scripts/run_calvin_latency_sweep.sh.
+inference_delay_steps: 0
+
 # Dump executed per-step action streams to rollout_actions.jsonl for
 # trajectory-smoothness analysis (tools/results/calvin_smoothness.py). Off by
 # default; enable on the reduced re-run with log_actions=true.

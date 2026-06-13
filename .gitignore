@@ -210,3 +210,4 @@ tools/results/_cache/latency_synth_4090/
 /calvin_smoothness*.png
 /datamix.pdf
 /output_logs/
+/wandb_exports/**

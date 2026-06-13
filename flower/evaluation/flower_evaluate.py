@@ -1,4 +1,4 @@
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, deque
 import json
 import logging
 import os
@@ -360,12 +360,30 @@ def rollout(env, model, task_oracle, cfg, subtask, lang_embeddings, val_annotati
     log_actions = bool(cfg.get("log_actions", False))
     actions_log = [] if log_actions else None
 
+    # Decoupled-clock latency study (docs: realtime importance plan). With
+    # inference_delay_steps=d>0 the action applied to the env at step k is the one
+    # the policy computed d control steps earlier, emulating a real robot acting on
+    # a stale observation while the network thinks. The policy still plans on its
+    # normal chunking schedule (model.step is unchanged); only actuation is delayed.
+    # d=0 (default) is a strict no-op: applied_action is the freshly computed action.
+    delay_steps = int(cfg.get("inference_delay_steps", 0))
+    action_delay_buf = deque() if delay_steps > 0 else None
+
     steps_taken = cfg.ep_len
     for step in range(cfg.ep_len):
         action = model.step(obs, goal)
+        if delay_steps > 0:
+            action_delay_buf.append(action)
+            # Once warmed up, apply a_{k-d}; during the first d steps hold the
+            # oldest produced action so the arm does not jump from a zero command.
+            applied_action = (action_delay_buf.popleft()
+                              if len(action_delay_buf) > delay_steps
+                              else action_delay_buf[0])
+        else:
+            applied_action = action
         if log_actions:
-            actions_log.append(_action_to_list(action))
-        obs, _, _, current_info = env.step(action)
+            actions_log.append(_action_to_list(applied_action))
+        obs, _, _, current_info = env.step(applied_action)
         if cfg.debug:
             img = env.render(mode="rgb_array")
             join_vis_lang(img, lang_annotation)
